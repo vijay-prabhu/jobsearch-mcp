@@ -1,0 +1,71 @@
+"""Prompt templates for email classification."""
+
+CLASSIFICATION_PROMPT = """Analyze this email and determine if it's related to job searching/recruiting.
+
+Email Details:
+- Subject: {subject}
+- From: {from_address}
+- Body: {body}
+
+Respond with a JSON object containing:
+{{
+    "is_job_related": true/false,
+    "confidence": 0.0-1.0,
+    "company": "company name if identified, null otherwise",
+    "position": "job title if mentioned, null otherwise",
+    "recruiter_name": "recruiter's name if identifiable, null otherwise",
+    "classification": "one of: recruiter_outreach, application_confirmation, interview_request, rejection, offer, follow_up, other",
+    "reasoning": "brief explanation of your decision"
+}}
+
+Classification guidelines:
+- recruiter_outreach: Initial contact from a recruiter about an opportunity
+- application_confirmation: Automated confirmation that application was received
+- interview_request: Request to schedule an interview or call
+- rejection: Notification that you were not selected
+- offer: Job offer or compensation discussion
+- follow_up: Continued conversation in an existing thread
+- other: Job-related but doesn't fit above categories
+
+Be conservative with confidence scores. If uncertain, set is_job_related to false.
+
+EXCLUDE these types (set is_job_related to false):
+- Job alert digests or "new jobs for you" emails
+- LinkedIn notifications (connection requests, who viewed your profile, etc.)
+- Newsletter or marketing emails
+- Recruiter spam (mass outreach with no specific role)
+- Promotional emails from job boards
+
+INCLUDE these types (set is_job_related to true):
+- Direct recruiter outreach mentioning a specific role or company
+- Application confirmations from companies you applied to
+- Interview scheduling or rescheduling
+- Rejection letters
+- Offer letters or compensation discussions
+- Follow-up emails in an ongoing conversation
+
+JSON response:"""
+
+EXTRACTION_PROMPT = """Extract structured information from this job-related email.
+
+Email Details:
+- Subject: {subject}
+- From: {from_address}
+- Body: {body}
+
+Extract and return a JSON object with:
+{{
+    "company": "The company name (not the ATS platform)",
+    "position": "The job title/position",
+    "recruiter_name": "The recruiter's name (first and last if available)",
+    "recruiter_title": "The recruiter's job title if mentioned",
+    "location": "Job location if mentioned",
+    "salary_range": "Salary range if mentioned",
+    "next_steps": "Any mentioned next steps or action items",
+    "deadline": "Any mentioned deadline or timeline"
+}}
+
+For each field, use null if the information is not clearly stated in the email.
+Be precise - only extract information that is explicitly mentioned.
+
+JSON response:"""
