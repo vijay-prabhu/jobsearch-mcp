@@ -43,6 +43,12 @@ func New(db *database.DB, provider email.Provider, f *filter.Filter, c *classifi
 	}
 }
 
+// SyncOptions configures the sync behavior
+type SyncOptions struct {
+	Days     int  // Number of days to fetch (0 = use default or last sync)
+	FullSync bool // Ignore last sync time
+}
+
 // SyncResult contains the results of a sync operation
 type SyncResult struct {
 	EmailsFetched        int
@@ -53,8 +59,13 @@ type SyncResult struct {
 	Errors               []error
 }
 
-// Sync fetches new emails and processes them
+// Sync fetches new emails and processes them with default options
 func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
+	return t.SyncWithOptions(ctx, SyncOptions{})
+}
+
+// SyncWithOptions fetches new emails with custom options
+func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*SyncResult, error) {
 	result := &SyncResult{}
 
 	// Get user email for direction detection
@@ -74,7 +85,15 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 	opts := email.DefaultFetchOptions()
 	opts.MaxResults = t.config.Gmail.MaxResults
 
-	if syncState.LastSyncAt != nil {
+	// Apply sync options
+	if syncOpts.Days > 0 {
+		// Use custom days range
+		after := time.Now().AddDate(0, 0, -syncOpts.Days)
+		opts.After = &after
+	} else if syncOpts.FullSync {
+		// Full sync - use default 30 days, ignore last sync
+		// opts.After is already set by DefaultFetchOptions
+	} else if syncState.LastSyncAt != nil {
 		// Incremental sync - fetch since last sync
 		opts.After = syncState.LastSyncAt
 	}
@@ -261,12 +280,31 @@ func (t *Tracker) processEmail(ctx context.Context, pe *processedEmail) (bool, e
 
 // findOrCreateConversation finds an existing conversation or creates a new one
 func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email, classification *classifier.ClassifyResponse) (*database.Conversation, bool, error) {
-	// First, try to find by thread ID
+	// First, try to find by thread ID (exact thread match)
 	conv, err := t.db.GetConversationByThreadID(ctx, e.ThreadID)
 	if err != nil {
 		return nil, false, err
 	}
 	if conv != nil {
+		return conv, false, nil
+	}
+
+	// Determine recruiter email for smart grouping
+	groupByEmail := e.From.Email
+	if e.IsFromMe(t.userEmail) {
+		// For outbound emails, try to find recruiter from To address
+		if len(e.To) > 0 {
+			groupByEmail = e.To[0].Email
+		}
+	}
+
+	// Smart grouping: try to find existing conversation with same recruiter email
+	conv, err = t.db.GetConversationByRecruiterEmail(ctx, groupByEmail)
+	if err != nil {
+		return nil, false, err
+	}
+	if conv != nil {
+		// Found existing conversation with same recruiter - add email to it
 		return conv, false, nil
 	}
 

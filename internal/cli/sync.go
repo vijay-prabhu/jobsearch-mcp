@@ -14,18 +14,30 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/tracker"
 )
 
+var (
+	syncDays int
+	syncFull bool
+)
+
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Fetch and process new emails from Gmail",
 	Long: `Sync fetches new emails from your Gmail account, filters them
 for job-related content, and stores them in the local database.
 
-On first run, it will open a browser for Google authentication.`,
+On first run, it will open a browser for Google authentication.
+
+Examples:
+  jobsearch sync              # Incremental sync (since last sync, or 30 days)
+  jobsearch sync --days=60    # Fetch last 60 days
+  jobsearch sync --full       # Full sync (ignore last sync time)`,
 	RunE: runSync,
 }
 
 func init() {
 	rootCmd.AddCommand(syncCmd)
+	syncCmd.Flags().IntVar(&syncDays, "days", 0, "Number of days to fetch (default: 30, or since last sync)")
+	syncCmd.Flags().BoolVar(&syncFull, "full", false, "Ignore last sync time and fetch from scratch")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -82,10 +94,22 @@ func runSync(cmd *cobra.Command, args []string) error {
 	// Create tracker and run sync
 	t := tracker.New(db, provider, f, classifierClient, cfg)
 
-	fmt.Println()
-	fmt.Println("Fetching emails...")
+	// Build sync options
+	syncOpts := tracker.SyncOptions{
+		Days:     syncDays,
+		FullSync: syncFull,
+	}
 
-	result, err := t.Sync(ctx)
+	fmt.Println()
+	if syncDays > 0 {
+		fmt.Printf("Fetching emails (last %d days)...\n", syncDays)
+	} else if syncFull {
+		fmt.Println("Fetching emails (full sync)...")
+	} else {
+		fmt.Println("Fetching emails...")
+	}
+
+	result, err := t.SyncWithOptions(ctx, syncOpts)
 	if err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}

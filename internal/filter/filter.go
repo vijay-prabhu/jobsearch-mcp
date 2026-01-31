@@ -52,7 +52,7 @@ func New(cfg config.FilterConfig) *Filter {
 			SubjectWeight:    2.0, // Subject keywords weighted higher
 			BodyWeight:       1.0,
 			IncludeThreshold: 0.3, // Include if score >= 30%
-			UncertainMin:     0.1, // Uncertain if score between 10-30%
+			UncertainMin:     0.02, // Uncertain if score >= 2% (let LLM decide)
 		}),
 	}
 }

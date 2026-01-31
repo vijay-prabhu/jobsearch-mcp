@@ -589,3 +589,119 @@ func (db *DB) GetLearnedFiltersByType(ctx context.Context, filterType string) ([
 
 	return values, rows.Err()
 }
+
+// GetConversationByRecruiterEmail finds a conversation by recruiter email address
+// Excludes conversations with generic email addresses (like LinkedIn noreply)
+func (db *DB) GetConversationByRecruiterEmail(ctx context.Context, email string) (*Conversation, error) {
+	// Skip generic emails that shouldn't be grouped
+	genericEmails := []string{
+		"inmail-hit-reply@linkedin.com",
+		"jobalerts-noreply@linkedin.com",
+		"jobs-noreply@linkedin.com",
+		"newsletters-noreply@linkedin.com",
+		"noreply@",
+		"no-reply@",
+	}
+
+	emailLower := strings.ToLower(email)
+	for _, generic := range genericEmails {
+		if strings.Contains(emailLower, generic) {
+			return nil, nil // Don't group by generic emails
+		}
+	}
+
+	c := &Conversation{}
+	var position, recruiterName, recruiterEmail sql.NullString
+
+	err := db.QueryRowContext(ctx, `
+		SELECT id, company, position, recruiter_name, recruiter_email,
+		       direction, status, last_activity_at, email_count, created_at, updated_at
+		FROM conversations
+		WHERE LOWER(recruiter_email) = LOWER(?)
+		ORDER BY last_activity_at DESC
+		LIMIT 1
+	`, email).Scan(
+		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	c.Position = StringPtr(position)
+	c.RecruiterName = StringPtr(recruiterName)
+	c.RecruiterEmail = StringPtr(recruiterEmail)
+	return c, nil
+}
+
+// MergeResult contains the results of merging two conversations
+type MergeResult struct {
+	TargetID    string `json:"target_id"`
+	SourceID    string `json:"source_id"`
+	EmailsMoved int    `json:"emails_moved"`
+	TotalEmails int    `json:"total_emails"`
+}
+
+// MergeConversations merges the source conversation into the target conversation
+// All emails from source are moved to target, then source is deleted
+func (db *DB) MergeConversations(ctx context.Context, targetID, sourceID string) (*MergeResult, error) {
+	// Start transaction
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Count emails to be moved
+	var emailsMoved int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM emails WHERE conversation_id = ?`, sourceID).Scan(&emailsMoved)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count source emails: %w", err)
+	}
+
+	// Move emails from source to target
+	_, err = tx.ExecContext(ctx, `UPDATE emails SET conversation_id = ? WHERE conversation_id = ?`, targetID, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to move emails: %w", err)
+	}
+
+	// Update target conversation's email count and last activity
+	_, err = tx.ExecContext(ctx, `
+		UPDATE conversations
+		SET email_count = (SELECT COUNT(*) FROM emails WHERE conversation_id = ?),
+		    last_activity_at = (SELECT MAX(date) FROM emails WHERE conversation_id = ?),
+		    updated_at = ?
+		WHERE id = ?
+	`, targetID, targetID, time.Now(), targetID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update target conversation: %w", err)
+	}
+
+	// Delete source conversation
+	_, err = tx.ExecContext(ctx, `DELETE FROM conversations WHERE id = ?`, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete source conversation: %w", err)
+	}
+
+	// Get final email count
+	var totalEmails int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM emails WHERE conversation_id = ?`, targetID).Scan(&totalEmails)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count final emails: %w", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return &MergeResult{
+		TargetID:    targetID,
+		SourceID:    sourceID,
+		EmailsMoved: emailsMoved,
+		TotalEmails: totalEmails,
+	}, nil
+}
