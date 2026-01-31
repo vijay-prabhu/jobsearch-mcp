@@ -128,28 +128,33 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 		toProcess = append(toProcess, processedEmail{FilteredEmail: fe})
 	}
 
-	// Classify uncertain emails with LLM
+	// Classify uncertain emails with LLM (in parallel batches)
 	if len(uncertain) > 0 && t.classifier != nil && t.classifier.IsRunning(ctx) {
-		for i := range uncertain {
-			e := &uncertain[i]
-			classification, err := t.classifier.ClassifyWithFallback(
-				ctx,
-				classifier.ClassifyRequest{
-					EmailSubject: e.Email.Subject,
-					EmailBody:    e.Email.Body,
-					EmailFrom:    e.Email.From.Email,
-				},
-				t.config.LLM.Primary,
-				t.config.LLM.Fallback,
-			)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("classification failed: %w", err))
+		// Build batch request
+		requests := make([]classifier.ClassifyRequest, len(uncertain))
+		for i, e := range uncertain {
+			requests[i] = classifier.ClassifyRequest{
+				EmailSubject: e.Email.Subject,
+				EmailBody:    e.Email.Body,
+				EmailFrom:    e.Email.From.Email,
+			}
+		}
+
+		// Classify in parallel
+		batchResults := t.classifier.ClassifyBatch(ctx, requests, t.config.LLM.Primary, t.config.LLM.Fallback)
+
+		// Process results
+		for i, br := range batchResults {
+			if br.Error != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("classification failed: %w", br.Error))
 				continue
 			}
 
 			result.EmailsClassified++
+			classification := br.Response
 
 			if classification.IsJobRelated {
+				e := &uncertain[i]
 				e.Result.Include = true
 				e.Result.Layer = filter.LayerLLM
 				e.Result.Confidence = classification.Confidence

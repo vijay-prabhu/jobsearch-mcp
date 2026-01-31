@@ -590,6 +590,16 @@ func (db *DB) GetLearnedFiltersByType(ctx context.Context, filterType string) ([
 	return values, rows.Err()
 }
 
+// UpdateEmailBody stores the email body content in the database for caching
+func (db *DB) UpdateEmailBody(ctx context.Context, emailID, body string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE emails
+		SET body_stored = TRUE, body_encrypted = ?
+		WHERE id = ?
+	`, body, emailID)
+	return err
+}
+
 // GetConversationByRecruiterEmail finds a conversation by recruiter email address
 // Excludes conversations with generic email addresses (like LinkedIn noreply)
 func (db *DB) GetConversationByRecruiterEmail(ctx context.Context, email string) (*Conversation, error) {

@@ -108,8 +108,8 @@ func (c *Config) Validate() error {
 	if c.Gmail.TokenPath == "" {
 		errs = append(errs, errors.New("gmail.token_path is required"))
 	}
-	if c.Gmail.MaxResults < 1 || c.Gmail.MaxResults > 500 {
-		errs = append(errs, errors.New("gmail.max_results must be between 1 and 500"))
+	if c.Gmail.MaxResults < 1 || c.Gmail.MaxResults > 5000 {
+		errs = append(errs, errors.New("gmail.max_results must be between 1 and 5000"))
 	}
 
 	// Database validation

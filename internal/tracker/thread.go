@@ -95,19 +95,30 @@ func (t *Tracker) FetchThread(ctx context.Context, companyOrID string) (*Thread,
 			te.Snippet = *dbEmail.Snippet
 		}
 
-		// Fetch full email content from provider
-		fullEmail, err := t.provider.GetEmail(ctx, dbEmail.GmailID)
-		if err != nil {
-			// If fetch fails, use snippet as fallback
-			te.Body = te.Snippet
-		} else if fullEmail != nil {
-			te.Body = fullEmail.Body
-			// Update other fields if they were empty
-			if te.Subject == "" {
-				te.Subject = fullEmail.Subject
-			}
-			if te.To == "" && len(fullEmail.To) > 0 {
-				te.To = fullEmail.To[0].Email
+		// Check if body is cached in database
+		if dbEmail.BodyStored && dbEmail.BodyEncrypted != nil && *dbEmail.BodyEncrypted != "" {
+			// Use cached body
+			te.Body = *dbEmail.BodyEncrypted
+		} else {
+			// Fetch full email content from provider
+			fullEmail, err := t.provider.GetEmail(ctx, dbEmail.GmailID)
+			if err != nil {
+				// If fetch fails, use snippet as fallback
+				te.Body = te.Snippet
+			} else if fullEmail != nil {
+				te.Body = fullEmail.Body
+				// Update other fields if they were empty
+				if te.Subject == "" {
+					te.Subject = fullEmail.Subject
+				}
+				if te.To == "" && len(fullEmail.To) > 0 {
+					te.To = fullEmail.To[0].Email
+				}
+
+				// Cache the body for future use
+				if t.config.Privacy.StoreEmailBody {
+					_ = t.db.UpdateEmailBody(ctx, dbEmail.ID, fullEmail.Body)
+				}
 			}
 		}
 

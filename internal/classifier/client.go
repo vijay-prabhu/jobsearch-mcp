@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
+
+// concurrentClassifications is the number of parallel LLM classification calls
+const concurrentClassifications = 5
 
 // Client is an HTTP client for the Python classification service
 type Client struct {
@@ -152,4 +156,53 @@ func (c *Client) ClassifyWithFallback(ctx context.Context, req ClassifyRequest, 
 	}
 
 	return nil, err
+}
+
+// BatchClassifyResult holds the result for a single email in a batch
+type BatchClassifyResult struct {
+	Index    int
+	Response *ClassifyResponse
+	Error    error
+}
+
+// ClassifyBatch classifies multiple emails in parallel
+func (c *Client) ClassifyBatch(ctx context.Context, requests []ClassifyRequest, primary, fallback string) []BatchClassifyResult {
+	results := make([]BatchClassifyResult, len(requests))
+	resultChan := make(chan BatchClassifyResult, len(requests))
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, concurrentClassifications)
+
+	for i, req := range requests {
+		wg.Add(1)
+		go func(index int, r ClassifyRequest) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				resultChan <- BatchClassifyResult{Index: index, Error: ctx.Err()}
+				return
+			}
+
+			// Classify with fallback
+			resp, err := c.ClassifyWithFallback(ctx, r, primary, fallback)
+			resultChan <- BatchClassifyResult{Index: index, Response: resp, Error: err}
+		}(i, req)
+	}
+
+	// Close channel when all done
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results
+	for r := range resultChan {
+		results[r.Index] = r
+	}
+
+	return results
 }

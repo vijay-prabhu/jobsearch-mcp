@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
 
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/email"
 )
+
+// concurrentFetches is the number of parallel Gmail API calls
+const concurrentFetches = 10
 
 // Provider implements the email.Provider interface for Gmail
 type Provider struct {
@@ -75,7 +79,7 @@ func (p *Provider) GetUserEmail(ctx context.Context) (string, error) {
 	return p.userEmail, nil
 }
 
-// FetchEmails retrieves emails matching criteria
+// FetchEmails retrieves emails matching criteria using parallel fetching
 func (p *Provider) FetchEmails(ctx context.Context, opts email.FetchOptions) ([]email.Email, error) {
 	if p.service == nil {
 		return nil, fmt.Errorf("not authenticated - call Authenticate() first")
@@ -84,14 +88,14 @@ func (p *Provider) FetchEmails(ctx context.Context, opts email.FetchOptions) ([]
 	// Build query
 	query := buildQuery(opts)
 
-	// Fetch message list
-	var emails []email.Email
+	// Step 1: Collect all message IDs
+	var messageIDs []string
 	pageToken := ""
 
 	for {
 		req := p.service.Users.Messages.List("me").
 			Q(query).
-			MaxResults(int64(min(opts.MaxResults-len(emails), 100)))
+			MaxResults(int64(min(opts.MaxResults-len(messageIDs), 500)))
 
 		if pageToken != "" {
 			req = req.PageToken(pageToken)
@@ -102,31 +106,103 @@ func (p *Provider) FetchEmails(ctx context.Context, opts email.FetchOptions) ([]
 			return nil, fmt.Errorf("failed to list messages: %w", err)
 		}
 
-		// Fetch full details for each message
 		for _, msg := range resp.Messages {
-			fullMsg, err := p.service.Users.Messages.Get("me", msg.Id).
-				Format("full").
-				Context(ctx).
-				Do()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to fetch message %s: %v\n", msg.Id, err)
-				continue
-			}
-
-			emails = append(emails, convertMessage(fullMsg))
-
-			if len(emails) >= opts.MaxResults {
-				return emails, nil
+			messageIDs = append(messageIDs, msg.Id)
+			if len(messageIDs) >= opts.MaxResults {
+				break
 			}
 		}
 
 		pageToken = resp.NextPageToken
-		if pageToken == "" || len(emails) >= opts.MaxResults {
+		if pageToken == "" || len(messageIDs) >= opts.MaxResults {
 			break
 		}
 	}
 
-	return emails, nil
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+
+	// Step 2: Fetch messages in parallel
+	return p.fetchMessagesParallel(ctx, messageIDs)
+}
+
+// fetchMessagesParallel fetches multiple messages concurrently
+func (p *Provider) fetchMessagesParallel(ctx context.Context, messageIDs []string) ([]email.Email, error) {
+	// Result channel and slice
+	type result struct {
+		index int
+		email email.Email
+		err   error
+	}
+
+	results := make(chan result, len(messageIDs))
+	var wg sync.WaitGroup
+
+	// Semaphore to limit concurrent requests
+	sem := make(chan struct{}, concurrentFetches)
+
+	// Launch workers
+	for i, msgID := range messageIDs {
+		wg.Add(1)
+		go func(index int, id string) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results <- result{index: index, err: ctx.Err()}
+				return
+			}
+
+			// Fetch message
+			fullMsg, err := p.service.Users.Messages.Get("me", id).
+				Format("full").
+				Context(ctx).
+				Do()
+			if err != nil {
+				results <- result{index: index, err: err}
+				return
+			}
+
+			results <- result{index: index, email: convertMessage(fullMsg)}
+		}(i, msgID)
+	}
+
+	// Close results channel when all workers done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	emails := make([]email.Email, len(messageIDs))
+	var fetchErrors []error
+
+	for r := range results {
+		if r.err != nil {
+			fetchErrors = append(fetchErrors, fmt.Errorf("message %d: %w", r.index, r.err))
+			continue
+		}
+		emails[r.index] = r.email
+	}
+
+	// Filter out zero-value emails (from errors)
+	var validEmails []email.Email
+	for _, e := range emails {
+		if e.ID != "" {
+			validEmails = append(validEmails, e)
+		}
+	}
+
+	// Log errors if any
+	if len(fetchErrors) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: failed to fetch %d messages\n", len(fetchErrors))
+	}
+
+	return validEmails, nil
 }
 
 // GetEmail retrieves a single email by ID
