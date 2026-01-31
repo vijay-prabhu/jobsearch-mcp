@@ -27,6 +27,7 @@ type Tracker struct {
 	filter     *filter.Filter
 	classifier *classifier.Client
 	config     *config.Config
+	learner    *Learner
 	userEmail  string
 }
 
@@ -38,6 +39,7 @@ func New(db *database.DB, provider email.Provider, f *filter.Filter, c *classifi
 		filter:     f,
 		classifier: c,
 		config:     cfg,
+		learner:    NewLearner(db),
 	}
 }
 
@@ -136,6 +138,11 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 					FilteredEmail:  *e,
 					Classification: classification,
 				})
+
+				// Learn from this classification
+				if t.learner != nil {
+					t.learner.LearnFromEmail(ctx, &e.Email, classification.Confidence)
+				}
 			}
 		}
 	}
@@ -353,6 +360,53 @@ func (t *Tracker) updateAllStatuses(ctx context.Context) error {
 			conv.Status = newStatus
 			t.db.UpdateConversation(ctx, &conv)
 		}
+	}
+
+	return nil
+}
+
+// MarkFalsePositive marks a conversation as incorrectly included (learns from mistake)
+func (t *Tracker) MarkFalsePositive(ctx context.Context, convID string) error {
+	conv, err := t.db.GetConversation(ctx, convID)
+	if err != nil || conv == nil {
+		return fmt.Errorf("conversation not found: %s", convID)
+	}
+
+	// Get first email to learn from its domain
+	emails, err := t.db.ListEmailsForConversation(ctx, conv.ID)
+	if err != nil || len(emails) == 0 {
+		return fmt.Errorf("no emails found for conversation")
+	}
+
+	// Create email.Email from database.Email for the learner
+	e := &email.Email{
+		From: email.Address{Email: emails[0].FromAddress},
+	}
+	if emails[0].Subject != nil {
+		e.Subject = *emails[0].Subject
+	}
+
+	// Learn from feedback
+	if t.learner != nil {
+		if err := t.learner.LearnFromFeedback(ctx, e, true); err != nil {
+			return err
+		}
+	}
+
+	// Mark conversation as closed
+	conv.Status = database.StatusClosed
+	return t.db.UpdateConversation(ctx, conv)
+}
+
+// MarkFalseNegative records that an email was incorrectly excluded (for learning)
+func (t *Tracker) MarkFalseNegative(ctx context.Context, fromEmail, subject string) error {
+	e := &email.Email{
+		From:    email.Address{Email: fromEmail},
+		Subject: subject,
+	}
+
+	if t.learner != nil {
+		return t.learner.LearnFromFeedback(ctx, e, false)
 	}
 
 	return nil

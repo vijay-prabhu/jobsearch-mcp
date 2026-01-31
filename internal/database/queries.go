@@ -419,3 +419,173 @@ func (db *DB) IncrementEmailCount(ctx context.Context, convID string) error {
 	`, time.Now(), convID)
 	return err
 }
+
+// Learned Filters
+
+// FilterType constants
+const (
+	FilterTypeDomainWhitelist  = "domain_whitelist"
+	FilterTypeDomainBlacklist  = "domain_blacklist"
+	FilterTypeSubjectKeyword   = "subject_keyword"
+	FilterTypeBodyKeyword      = "body_keyword"
+	FilterTypeSubjectBlacklist = "subject_blacklist"
+)
+
+// FilterSource constants
+const (
+	FilterSourceUser        = "user"
+	FilterSourceAISuggested = "ai_suggested"
+	FilterSourceAIConfirmed = "ai_confirmed"
+)
+
+// CreateLearnedFilter inserts a new learned filter
+func (db *DB) CreateLearnedFilter(ctx context.Context, f *LearnedFilter) error {
+	if f.ID == "" {
+		f.ID = uuid.New().String()
+	}
+	f.CreatedAt = time.Now()
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO learned_filters (id, filter_type, value, source, confidence, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(filter_type, value) DO UPDATE SET
+			source = excluded.source,
+			confidence = excluded.confidence
+	`, f.ID, f.FilterType, f.Value, f.Source, NullFloat64(f.Confidence), f.CreatedAt)
+	return err
+}
+
+// GetLearnedFilter retrieves a learned filter by ID
+func (db *DB) GetLearnedFilter(ctx context.Context, id string) (*LearnedFilter, error) {
+	f := &LearnedFilter{}
+	var confidence sql.NullFloat64
+
+	err := db.QueryRowContext(ctx, `
+		SELECT id, filter_type, value, source, confidence, created_at
+		FROM learned_filters WHERE id = ?
+	`, id).Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &confidence, &f.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	f.Confidence = Float64Ptr(confidence)
+	return f, nil
+}
+
+// LearnedFilterListOptions contains options for listing learned filters
+type LearnedFilterListOptions struct {
+	FilterType *string
+	Source     *string
+	Limit      int
+}
+
+// ListLearnedFilters retrieves learned filters with optional filters
+func (db *DB) ListLearnedFilters(ctx context.Context, opts LearnedFilterListOptions) ([]LearnedFilter, error) {
+	query := `SELECT id, filter_type, value, source, confidence, created_at FROM learned_filters WHERE 1=1`
+	args := []interface{}{}
+
+	if opts.FilterType != nil {
+		query += " AND filter_type = ?"
+		args = append(args, *opts.FilterType)
+	}
+	if opts.Source != nil {
+		query += " AND source = ?"
+		args = append(args, *opts.Source)
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	if opts.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", opts.Limit)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var filters []LearnedFilter
+	for rows.Next() {
+		f := LearnedFilter{}
+		var confidence sql.NullFloat64
+
+		if err := rows.Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &confidence, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		f.Confidence = Float64Ptr(confidence)
+		filters = append(filters, f)
+	}
+
+	return filters, rows.Err()
+}
+
+// LearnedFilterExists checks if a filter with the given type and value exists
+func (db *DB) LearnedFilterExists(ctx context.Context, filterType, value string) (bool, error) {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM learned_filters WHERE filter_type = ? AND LOWER(value) = LOWER(?)
+	`, filterType, value).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// DeleteLearnedFilter deletes a learned filter by ID
+func (db *DB) DeleteLearnedFilter(ctx context.Context, id string) error {
+	result, err := db.ExecContext(ctx, `DELETE FROM learned_filters WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("filter not found: %s", id)
+	}
+	return nil
+}
+
+// ApproveLearnedFilter changes a filter's source from ai_suggested to ai_confirmed
+func (db *DB) ApproveLearnedFilter(ctx context.Context, id string) error {
+	result, err := db.ExecContext(ctx, `
+		UPDATE learned_filters SET source = ? WHERE id = ? AND source = ?
+	`, FilterSourceAIConfirmed, id, FilterSourceAISuggested)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("filter not found or not a suggestion: %s", id)
+	}
+	return nil
+}
+
+// GetLearnedFiltersByType returns all confirmed filters of a specific type
+func (db *DB) GetLearnedFiltersByType(ctx context.Context, filterType string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT value FROM learned_filters
+		WHERE filter_type = ? AND (source = ? OR source = ?)
+		ORDER BY value
+	`, filterType, FilterSourceUser, FilterSourceAIConfirmed)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+
+	return values, rows.Err()
+}

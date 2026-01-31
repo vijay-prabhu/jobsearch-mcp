@@ -11,7 +11,8 @@ func (f *Filter) checkDomainWhitelist(e *email.Email) *Result {
 	domain := e.Domain()
 	fromEmail := strings.ToLower(e.From.Email)
 
-	for _, pattern := range f.config.DomainWhitelist {
+	// Check config + learned whitelist
+	for _, pattern := range f.GetAllDomainWhitelist() {
 		pattern = strings.ToLower(pattern)
 
 		// Check if pattern matches domain or is contained in email
@@ -33,7 +34,8 @@ func (f *Filter) checkDomainBlacklist(e *email.Email) *Result {
 	domain := e.Domain()
 	fromEmail := strings.ToLower(e.From.Email)
 
-	for _, pattern := range f.config.DomainBlacklist {
+	// Check config + learned blacklist
+	for _, pattern := range f.GetAllDomainBlacklist() {
 		pattern = strings.ToLower(pattern)
 
 		// Check if pattern matches domain or is contained in email

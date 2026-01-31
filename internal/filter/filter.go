@@ -35,6 +35,13 @@ type FilteredEmail struct {
 type Filter struct {
 	config config.FilterConfig
 	scorer *Scorer
+
+	// Learned filters (added at runtime)
+	learnedDomainWhitelist  []string
+	learnedDomainBlacklist  []string
+	learnedSubjectBlacklist []string
+	learnedSubjectKeywords  []string
+	learnedBodyKeywords     []string
 }
 
 // New creates a new Filter with the given configuration
@@ -48,6 +55,47 @@ func New(cfg config.FilterConfig) *Filter {
 			UncertainMin:     0.1, // Uncertain if score between 10-30%
 		}),
 	}
+}
+
+// AddLearnedFilters adds learned filters to the filter configuration
+func (f *Filter) AddLearnedFilters(filterType string, values []string) {
+	switch filterType {
+	case "domain_whitelist":
+		f.learnedDomainWhitelist = append(f.learnedDomainWhitelist, values...)
+	case "domain_blacklist":
+		f.learnedDomainBlacklist = append(f.learnedDomainBlacklist, values...)
+	case "subject_blacklist":
+		f.learnedSubjectBlacklist = append(f.learnedSubjectBlacklist, values...)
+	case "subject_keyword":
+		f.learnedSubjectKeywords = append(f.learnedSubjectKeywords, values...)
+	case "body_keyword":
+		f.learnedBodyKeywords = append(f.learnedBodyKeywords, values...)
+	}
+}
+
+// GetAllDomainWhitelist returns config + learned domain whitelist
+func (f *Filter) GetAllDomainWhitelist() []string {
+	return append(f.config.DomainWhitelist, f.learnedDomainWhitelist...)
+}
+
+// GetAllDomainBlacklist returns config + learned domain blacklist
+func (f *Filter) GetAllDomainBlacklist() []string {
+	return append(f.config.DomainBlacklist, f.learnedDomainBlacklist...)
+}
+
+// GetAllSubjectBlacklist returns config + learned subject blacklist
+func (f *Filter) GetAllSubjectBlacklist() []string {
+	return append(f.config.SubjectBlacklist, f.learnedSubjectBlacklist...)
+}
+
+// GetAllSubjectKeywords returns config + learned subject keywords
+func (f *Filter) GetAllSubjectKeywords() []string {
+	return append(f.config.SubjectKeywords, f.learnedSubjectKeywords...)
+}
+
+// GetAllBodyKeywords returns config + learned body keywords
+func (f *Filter) GetAllBodyKeywords() []string {
+	return append(f.config.BodyKeywords, f.learnedBodyKeywords...)
 }
 
 // Apply runs the email through the filtering pipeline

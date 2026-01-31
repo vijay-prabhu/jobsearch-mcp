@@ -63,6 +63,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	// Initialize filter
 	f := filter.New(cfg.Filters)
 
+	// Load learned filters from database
+	loadLearnedFilters(ctx, db, f)
+
 	// Initialize classifier client (optional)
 	var classifierClient *classifier.Client
 	classifierURL := cfg.ClassifierURL()
@@ -132,4 +135,23 @@ func showPendingActions(ctx context.Context, db *database.DB) {
 	}
 	fmt.Println()
 	fmt.Println("Run 'jobsearch list --status=waiting_on_me' for details.")
+}
+
+// loadLearnedFilters loads confirmed filters from the database and adds them to the filter
+func loadLearnedFilters(ctx context.Context, db *database.DB, f *filter.Filter) {
+	filterTypes := []string{
+		database.FilterTypeDomainWhitelist,
+		database.FilterTypeDomainBlacklist,
+		database.FilterTypeSubjectBlacklist,
+		database.FilterTypeSubjectKeyword,
+		database.FilterTypeBodyKeyword,
+	}
+
+	for _, filterType := range filterTypes {
+		values, err := db.GetLearnedFiltersByType(ctx, filterType)
+		if err != nil || len(values) == 0 {
+			continue
+		}
+		f.AddLearnedFilters(filterType, values)
+	}
 }

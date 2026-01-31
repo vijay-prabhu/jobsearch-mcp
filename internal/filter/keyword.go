@@ -11,7 +11,8 @@ import (
 func (f *Filter) checkSubjectBlacklist(e *email.Email) *Result {
 	subjectLower := strings.ToLower(e.Subject)
 
-	for _, pattern := range f.config.SubjectBlacklist {
+	// Check config + learned blacklist
+	for _, pattern := range f.GetAllSubjectBlacklist() {
 		pattern = strings.ToLower(pattern)
 
 		if strings.Contains(subjectLower, pattern) {
@@ -38,9 +39,13 @@ func (f *Filter) scoreKeywords(e *email.Email) Result {
 		bodyLower = snippetLower
 	}
 
+	// Get combined keyword lists
+	subjectKeywords := f.GetAllSubjectKeywords()
+	bodyKeywords := f.GetAllBodyKeywords()
+
 	// Count subject keyword matches
 	subjectMatches := 0
-	for _, kw := range f.config.SubjectKeywords {
+	for _, kw := range subjectKeywords {
 		if containsWord(subjectLower, strings.ToLower(kw)) {
 			subjectMatches++
 		}
@@ -48,7 +53,7 @@ func (f *Filter) scoreKeywords(e *email.Email) Result {
 
 	// Count body keyword matches
 	bodyMatches := 0
-	for _, kw := range f.config.BodyKeywords {
+	for _, kw := range bodyKeywords {
 		if containsWord(bodyLower, strings.ToLower(kw)) {
 			bodyMatches++
 		}
@@ -56,8 +61,8 @@ func (f *Filter) scoreKeywords(e *email.Email) Result {
 
 	// Calculate score
 	score := f.scorer.Calculate(
-		subjectMatches, len(f.config.SubjectKeywords),
-		bodyMatches, len(f.config.BodyKeywords),
+		subjectMatches, len(subjectKeywords),
+		bodyMatches, len(bodyKeywords),
 	)
 
 	// Determine result based on score
