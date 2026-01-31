@@ -2,7 +2,9 @@ package tracker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/classifier"
@@ -11,6 +13,12 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/email"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/filter"
 )
+
+// processedEmail holds a filtered email with optional LLM classification
+type processedEmail struct {
+	filter.FilteredEmail
+	Classification *classifier.ClassifyResponse
+}
 
 // Tracker orchestrates the email sync and tracking pipeline
 type Tracker struct {
@@ -91,6 +99,14 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 
 	result.EmailsFiltered = len(included)
 
+	// Build list of emails to process with their classifications
+	var toProcess []processedEmail
+
+	// Add already-included emails (from whitelist/keywords)
+	for _, fe := range included {
+		toProcess = append(toProcess, processedEmail{FilteredEmail: fe})
+	}
+
 	// Classify uncertain emails with LLM
 	if len(uncertain) > 0 && t.classifier != nil && t.classifier.IsRunning(ctx) {
 		for i := range uncertain {
@@ -116,14 +132,17 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 				e.Result.Include = true
 				e.Result.Layer = filter.LayerLLM
 				e.Result.Confidence = classification.Confidence
-				included = append(included, *e)
+				toProcess = append(toProcess, processedEmail{
+					FilteredEmail:  *e,
+					Classification: classification,
+				})
 			}
 		}
 	}
 
-	// Process included emails
-	for _, fe := range included {
-		newConv, err := t.processEmail(ctx, &fe)
+	// Process all included emails
+	for _, pe := range toProcess {
+		newConv, err := t.processEmail(ctx, &pe)
 		if err != nil {
 			result.Errors = append(result.Errors, err)
 			continue
@@ -152,8 +171,10 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 	return result, nil
 }
 
-// processEmail processes a single filtered email
-func (t *Tracker) processEmail(ctx context.Context, fe *filter.FilteredEmail) (bool, error) {
+// processEmail processes a single filtered email with optional classification
+func (t *Tracker) processEmail(ctx context.Context, pe *processedEmail) (bool, error) {
+	fe := &pe.FilteredEmail
+
 	// Check if email already exists
 	existing, err := t.db.GetEmailByGmailID(ctx, fe.Email.ID)
 	if err != nil {
@@ -164,7 +185,7 @@ func (t *Tracker) processEmail(ctx context.Context, fe *filter.FilteredEmail) (b
 	}
 
 	// Find or create conversation
-	conv, isNew, err := t.findOrCreateConversation(ctx, &fe.Email)
+	conv, isNew, err := t.findOrCreateConversation(ctx, &fe.Email, pe.Classification)
 	if err != nil {
 		return false, err
 	}
@@ -196,6 +217,21 @@ func (t *Tracker) processEmail(ctx context.Context, fe *filter.FilteredEmail) (b
 		Confidence:     &confidence,
 	}
 
+	// Store extracted data from LLM if available
+	if pe.Classification != nil {
+		extractedData := map[string]interface{}{
+			"company":        pe.Classification.Company,
+			"position":       pe.Classification.Position,
+			"recruiter_name": pe.Classification.RecruiterName,
+			"classification": pe.Classification.Classification,
+			"reasoning":      pe.Classification.Reasoning,
+		}
+		if jsonData, err := json.Marshal(extractedData); err == nil {
+			jsonStr := string(jsonData)
+			dbEmail.ExtractedData = &jsonStr
+		}
+	}
+
 	if err := t.db.CreateEmail(ctx, dbEmail); err != nil {
 		return false, err
 	}
@@ -217,7 +253,7 @@ func (t *Tracker) processEmail(ctx context.Context, fe *filter.FilteredEmail) (b
 }
 
 // findOrCreateConversation finds an existing conversation or creates a new one
-func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email) (*database.Conversation, bool, error) {
+func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email, classification *classifier.ClassifyResponse) (*database.Conversation, bool, error) {
 	// First, try to find by thread ID
 	conv, err := t.db.GetConversationByThreadID(ctx, e.ThreadID)
 	if err != nil {
@@ -233,17 +269,25 @@ func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email) 
 		direction = database.DirectionOutbound
 	}
 
-	// Extract company from domain
-	company := filter.ExtractCompanyFromDomain(e.Domain())
-	if company == "" {
-		company = e.Domain() // Use domain as fallback
-	}
+	// Determine company name
+	company := t.extractCompanyName(e, classification)
 
 	recruiterEmail := e.From.Email
 	recruiterName := e.From.Name
 
+	// If LLM extracted a recruiter name, use it
+	if classification != nil && classification.RecruiterName != nil && *classification.RecruiterName != "" {
+		recruiterName = *classification.RecruiterName
+	}
+
+	var position *string
+	if classification != nil && classification.Position != nil && *classification.Position != "" {
+		position = classification.Position
+	}
+
 	conv = &database.Conversation{
 		Company:        company,
+		Position:       position,
 		RecruiterEmail: &recruiterEmail,
 		RecruiterName:  &recruiterName,
 		Direction:      direction,
@@ -257,6 +301,33 @@ func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email) 
 	}
 
 	return conv, true, nil
+}
+
+// extractCompanyName determines the company name from email and classification
+func (t *Tracker) extractCompanyName(e *email.Email, classification *classifier.ClassifyResponse) string {
+	// Check if this is a LinkedIn InMail
+	isLinkedInInMail := strings.Contains(strings.ToLower(e.From.Email), "linkedin.com")
+
+	// If LLM extracted a company name, prefer that
+	if classification != nil && classification.Company != nil && *classification.Company != "" {
+		return *classification.Company
+	}
+
+	// For LinkedIn InMails without LLM company, use recruiter name as identifier
+	if isLinkedInInMail {
+		if e.From.Name != "" {
+			return e.From.Name + " (via LinkedIn)"
+		}
+		return "LinkedIn InMail"
+	}
+
+	// Extract company from domain
+	company := filter.ExtractCompanyFromDomain(e.Domain())
+	if company == "" {
+		company = e.Domain()
+	}
+
+	return company
 }
 
 // updateAllStatuses updates the status of all active conversations

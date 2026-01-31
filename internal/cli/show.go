@@ -47,7 +47,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	// Try to find by company first, then by ID
+	// Try to find by company first, then by ID, then by search
 	conv, err := db.GetConversationByCompany(ctx, identifier)
 	if err != nil {
 		return fmt.Errorf("database error: %w", err)
@@ -57,6 +57,17 @@ func runShow(cmd *cobra.Command, args []string) error {
 		conv, err = db.GetConversation(ctx, identifier)
 		if err != nil {
 			return fmt.Errorf("database error: %w", err)
+		}
+	}
+
+	// If still not found, try search and use first result
+	if conv == nil {
+		results, err := db.Search(ctx, identifier)
+		if err != nil {
+			return fmt.Errorf("search error: %w", err)
+		}
+		if len(results) > 0 {
+			conv = &results[0]
 		}
 	}
 
