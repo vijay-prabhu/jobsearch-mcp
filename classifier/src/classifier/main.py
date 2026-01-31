@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .llm import get_provider, ClassificationResult
+from .llm import ClassificationResult, get_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -7,8 +7,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from .base import ClassificationResult, LLMProvider
 from ..prompts import CLASSIFICATION_PROMPT
+from .base import ClassificationResult, LLMProvider
 
 logger = logging.getLogger(__name__)
 

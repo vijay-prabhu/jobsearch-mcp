@@ -1,6 +1,6 @@
 """Prompt templates for email classification."""
 
-CLASSIFICATION_PROMPT = """Analyze this email and determine if it's related to job searching/recruiting.
+CLASSIFICATION_PROMPT = """Analyze this email and determine if it's job-related.
 
 Email Details:
 - Subject: {subject}
@@ -14,7 +14,7 @@ Respond with a JSON object containing:
     "company": "company name if identified, null otherwise",
     "position": "job title if mentioned, null otherwise",
     "recruiter_name": "recruiter's name if identifiable, null otherwise",
-    "classification": "one of: recruiter_outreach, application_confirmation, interview_request, rejection, offer, follow_up, other",
+    "classification": "see classification guidelines below",
     "reasoning": "brief explanation of your decision"
 }}
 
