@@ -60,7 +60,8 @@ type initializeParams struct {
 type initializeResult struct {
 	ProtocolVersion string `json:"protocolVersion"`
 	Capabilities    struct {
-		Tools struct{} `json:"tools"`
+		Tools     struct{} `json:"tools"`
+		Resources struct{} `json:"resources"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -151,6 +152,10 @@ func (s *Server) handleMessage(ctx context.Context, msg string) *jsonRPCResponse
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolsCall(ctx, req)
+	case "resources/list":
+		return s.handleResourcesList(req)
+	case "resources/read":
+		return s.handleResourcesRead(ctx, req)
 	default:
 		return &jsonRPCResponse{
 			JSONRPC: "2.0",
@@ -236,6 +241,54 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		ID:      req.ID,
 		Result: callToolResult{
 			Content: []contentItem{{Type: "text", Text: text}},
+		},
+	}
+}
+
+func (s *Server) handleResourcesList(req jsonRPCRequest) *jsonRPCResponse {
+	return &jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  resourcesListResult{Resources: ResourceDefinitions},
+	}
+}
+
+func (s *Server) handleResourcesRead(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
+	var params readResourceParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return &jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &rpcError{
+				Code:    -32602,
+				Message: "Invalid params",
+			},
+		}
+	}
+
+	text, err := s.handleReadResource(ctx, params.URI)
+	if err != nil {
+		return &jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &rpcError{
+				Code:    -32602,
+				Message: err.Error(),
+			},
+		}
+	}
+
+	return &jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result: readResourceResult{
+			Contents: []resourceContent{
+				{
+					URI:      params.URI,
+					MimeType: "text/plain",
+					Text:     text,
+				},
+			},
 		},
 	}
 }

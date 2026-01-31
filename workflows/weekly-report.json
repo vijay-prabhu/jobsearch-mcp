@@ -1,0 +1,117 @@
+{
+  "name": "JobSearch Weekly Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Monday at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch stats --output=json"
+      },
+      "id": "get-stats",
+      "name": "Get Overall Stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, -100]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch list --since=7d --output=json"
+      },
+      "id": "get-week",
+      "name": "Get This Week",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch list --output=json"
+      },
+      "id": "get-all",
+      "name": "Get All Conversations",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = JSON.parse($('Get Overall Stats').item.json.stdout || '{}');\nconst thisWeek = JSON.parse($('Get This Week').item.json.stdout || '[]');\nconst all = JSON.parse($('Get All Conversations').item.json.stdout || '[]');\n\n// Count by company\nconst byCompany = {};\nall.forEach(c => {\n  byCompany[c.company] = (byCompany[c.company] || 0) + 1;\n});\n\n// Count by status\nconst byStatus = {};\nall.forEach(c => {\n  byStatus[c.status] = (byStatus[c.status] || 0) + 1;\n});\n\nlet body = `# Weekly Job Search Report\\n\\n`;\nbody += `## This Week\\n`;\nbody += `- New conversations: ${thisWeek.length}\\n`;\nbody += `- Companies contacted: ${[...new Set(thisWeek.map(c => c.company))].length}\\n\\n`;\n\nbody += `## Overall Stats\\n`;\nbody += `- Total conversations: ${stats.total_conversations || 0}\\n`;\nbody += `- Response rate: ${((stats.response_rate || 0) * 100).toFixed(1)}%\\n`;\nbody += `- Avg response time: ${(stats.avg_response_time_days || 0).toFixed(1)} days\\n\\n`;\n\nbody += `## By Status\\n`;\nObject.entries(byStatus).forEach(([status, count]) => {\n  body += `- ${status}: ${count}\\n`;\n});\nbody += `\\n`;\n\nbody += `## Active Companies\\n`;\nObject.entries(byCompany)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 10)\n  .forEach(([company, count]) => {\n    body += `- ${company}: ${count} conversation(s)\\n`;\n  });\n\nreturn [{ json: { \n  subject: `Weekly Job Search Report - ${thisWeek.length} new this week`, \n  body \n}}];"
+      },
+      "id": "format-report",
+      "name": "Format Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "jobsearch@example.com",
+        "toEmail": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.body }}"
+      },
+      "id": "send-report",
+      "name": "Send Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 100],
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Monday at 9 AM": {
+      "main": [
+        [
+          { "node": "Get Overall Stats", "type": "main", "index": 0 },
+          { "node": "Get This Week", "type": "main", "index": 0 },
+          { "node": "Get All Conversations", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Overall Stats": {
+      "main": [
+        [{ "node": "Format Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get This Week": {
+      "main": [
+        [{ "node": "Format Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get All Conversations": {
+      "main": [
+        [{ "node": "Format Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Report": {
+      "main": [
+        [{ "node": "Send Report", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

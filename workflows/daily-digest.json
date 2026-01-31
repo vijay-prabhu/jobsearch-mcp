@@ -1,0 +1,116 @@
+{
+  "name": "JobSearch Daily Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch stats --output=json"
+      },
+      "id": "get-stats",
+      "name": "Get Stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, -100]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch list --status=waiting_on_me --output=json"
+      },
+      "id": "get-waiting",
+      "name": "Get Waiting On Me",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch list --status=stale --output=json"
+      },
+      "id": "get-stale",
+      "name": "Get Stale",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = JSON.parse($('Get Stats').item.json.stdout || '{}');\nconst waiting = JSON.parse($('Get Waiting On Me').item.json.stdout || '[]');\nconst stale = JSON.parse($('Get Stale').item.json.stdout || '[]');\n\nlet body = `# Job Search Daily Digest\\n\\n`;\nbody += `## Summary\\n`;\nbody += `- Total conversations: ${stats.total_conversations || 0}\\n`;\nbody += `- Waiting on me: ${stats.waiting_on_me || 0}\\n`;\nbody += `- Waiting on them: ${stats.waiting_on_them || 0}\\n`;\nbody += `- Stale: ${stats.stale || 0}\\n\\n`;\n\nif (waiting.length > 0) {\n  body += `## Action Required (${waiting.length})\\n`;\n  waiting.forEach(c => {\n    body += `- **${c.company}**`;\n    if (c.recruiter_name) body += ` (${c.recruiter_name})`;\n    body += `\\n`;\n  });\n  body += `\\n`;\n}\n\nif (stale.length > 0) {\n  body += `## Needs Follow-up (${stale.length})\\n`;\n  stale.forEach(c => {\n    body += `- ${c.company}\\n`;\n  });\n}\n\nreturn [{ json: { subject: `Job Search Digest: ${waiting.length} pending`, body } }];"
+      },
+      "id": "format-email",
+      "name": "Format Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "jobsearch@example.com",
+        "toEmail": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.body }}"
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 100],
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily at 9 AM": {
+      "main": [
+        [
+          { "node": "Get Stats", "type": "main", "index": 0 },
+          { "node": "Get Waiting On Me", "type": "main", "index": 0 },
+          { "node": "Get Stale", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Stats": {
+      "main": [
+        [{ "node": "Format Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Waiting On Me": {
+      "main": [
+        [{ "node": "Format Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Stale": {
+      "main": [
+        [{ "node": "Format Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Email": {
+      "main": [
+        [{ "node": "Send Email", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

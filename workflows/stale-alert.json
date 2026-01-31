@@ -1,0 +1,81 @@
+{
+  "name": "JobSearch Stale Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "command": "jobsearch list --status=stale --output=json"
+      },
+      "id": "get-stale",
+      "name": "Get Stale Conversations",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stale = JSON.parse($input.item.json.stdout || '[]');\n\n// Filter to only conversations that became stale recently (within last 6 hours)\n// This prevents repeated alerts for the same conversation\nconst now = new Date();\nconst sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);\n\nconst newlyStale = stale.filter(c => {\n  const lastActivity = new Date(c.last_activity_at);\n  const staleDays = 7; // matches config\n  const staleDate = new Date(lastActivity.getTime() + staleDays * 24 * 60 * 60 * 1000);\n  return staleDate >= sixHoursAgo && staleDate <= now;\n});\n\nif (newlyStale.length === 0) {\n  return []; // No output means workflow stops here\n}\n\nreturn newlyStale.map(c => ({\n  json: {\n    company: c.company,\n    recruiter: c.recruiter_name || 'Unknown',\n    lastActivity: c.last_activity_at,\n    subject: `Stale Alert: ${c.company} needs follow-up`,\n    body: `Your conversation with ${c.company}${c.recruiter_name ? ` (${c.recruiter_name})` : ''} has gone stale.\\n\\nLast activity: ${c.last_activity_at}\\n\\nConsider sending a follow-up message.`\n  }\n}));"
+      },
+      "id": "check-newly-stale",
+      "name": "Check Newly Stale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "fromEmail": "jobsearch@example.com",
+        "toEmail": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.body }}"
+      },
+      "id": "send-alert",
+      "name": "Send Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [660, 0],
+      "credentials": {
+        "smtp": {
+          "id": "YOUR_SMTP_CREDENTIAL_ID",
+          "name": "SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [
+        [{ "node": "Get Stale Conversations", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Stale Conversations": {
+      "main": [
+        [{ "node": "Check Newly Stale", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Newly Stale": {
+      "main": [
+        [{ "node": "Send Alert", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
