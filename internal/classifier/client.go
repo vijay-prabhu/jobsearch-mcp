@@ -27,13 +27,13 @@ type ClassifyRequest struct {
 
 // ClassifyResponse is the response from classification
 type ClassifyResponse struct {
-	IsJobRelated   bool     `json:"is_job_related"`
-	Confidence     float64  `json:"confidence"`
-	Company        *string  `json:"company,omitempty"`
-	Position       *string  `json:"position,omitempty"`
-	RecruiterName  *string  `json:"recruiter_name,omitempty"`
-	Classification *string  `json:"classification,omitempty"`
-	Reasoning      *string  `json:"reasoning,omitempty"`
+	IsJobRelated   bool    `json:"is_job_related"`
+	Confidence     float64 `json:"confidence"`
+	Company        *string `json:"company,omitempty"`
+	Position       *string `json:"position,omitempty"`
+	RecruiterName  *string `json:"recruiter_name,omitempty"`
+	Classification *string `json:"classification,omitempty"`
+	Reasoning      *string `json:"reasoning,omitempty"`
 }
 
 // HealthResponse is the response from health check

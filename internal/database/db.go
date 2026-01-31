@@ -89,7 +89,7 @@ func (db *DB) Transaction(ctx context.Context, fn func(*sql.Tx) error) error {
 	}
 
 	if err := fn(tx); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback() // Ignore rollback error since we're returning the original error
 		return err
 	}
 

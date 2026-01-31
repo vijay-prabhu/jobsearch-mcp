@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/classifier"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/config"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/database"

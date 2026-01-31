@@ -114,18 +114,18 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	select {
 	case code = <-codeChan:
 	case err := <-errChan:
-		server.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 		return nil, err
 	case <-ctx.Done():
-		server.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 		return nil, ctx.Err()
 	case <-time.After(5 * time.Minute):
-		server.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 		return nil, fmt.Errorf("authentication timeout")
 	}
 
 	// Shutdown server
-	server.Shutdown(ctx)
+	_ = server.Shutdown(ctx)
 
 	// Exchange code for token
 	token, err := config.Exchange(ctx, code)
@@ -151,7 +151,7 @@ func openBrowser(url string) {
 		return
 	}
 
-	cmd.Start()
+	_ = cmd.Start()
 }
 
 // getClient returns an authenticated HTTP client
@@ -177,7 +177,7 @@ func getClient(ctx context.Context, config *oauth2.Config, tokenPath string) (*h
 	// Save refreshed token if it changed
 	newToken, err := tokenSource.Token()
 	if err == nil && newToken.AccessToken != token.AccessToken {
-		saveToken(tokenPath, newToken)
+		_ = saveToken(tokenPath, newToken)
 	}
 
 	return oauth2.NewClient(ctx, tokenSource), nil

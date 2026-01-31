@@ -186,8 +186,8 @@ func TestExtractCompanyFromDomain(t *testing.T) {
 		expected string
 	}{
 		{"stripe.com", "Stripe"},
-		{"jobs.lever.co", ""},  // ATS domain (lever)
-		{"greenhouse.io", ""},  // ATS domain
+		{"jobs.lever.co", ""}, // ATS domain (lever)
+		{"greenhouse.io", ""}, // ATS domain
 		{"mail.google.com", "Google"},
 		{"acme.io", "Acme"},
 	}

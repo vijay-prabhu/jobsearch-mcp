@@ -90,7 +90,7 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 		// Update sync state even if no new emails
 		now := time.Now()
 		syncState.LastSyncAt = &now
-		t.db.UpdateSyncState(ctx, syncState)
+		_ = t.db.UpdateSyncState(ctx, syncState)
 		return result, nil
 	}
 
@@ -141,7 +141,7 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 
 				// Learn from this classification
 				if t.learner != nil {
-					t.learner.LearnFromEmail(ctx, &e.Email, classification.Confidence)
+					_ = t.learner.LearnFromEmail(ctx, &e.Email, classification.Confidence)
 				}
 			}
 		}
@@ -358,7 +358,7 @@ func (t *Tracker) updateAllStatuses(ctx context.Context) error {
 		newStatus := ComputeStatus(emails, t.userEmail, t.config.Tracking.StaleAfterDays)
 		if newStatus != conv.Status {
 			conv.Status = newStatus
-			t.db.UpdateConversation(ctx, &conv)
+			_ = t.db.UpdateConversation(ctx, &conv)
 		}
 	}
 

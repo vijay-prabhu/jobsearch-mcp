@@ -124,7 +124,7 @@ type pendingActionsResult struct {
 func (s *Server) handleGetPendingActions(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	var p getPendingActionsParams
 	if params != nil {
-		json.Unmarshal(params, &p)
+		_ = json.Unmarshal(params, &p) // Ignore error, use defaults
 	}
 
 	includeStale := true
@@ -198,7 +198,7 @@ type getStatsParams struct {
 func (s *Server) handleGetStats(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	var p getStatsParams
 	if params != nil {
-		json.Unmarshal(params, &p)
+		_ = json.Unmarshal(params, &p) // Ignore error, use defaults
 	}
 
 	var since *time.Time

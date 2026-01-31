@@ -235,13 +235,13 @@ func extractBlacklistPhrases(text string) []string {
 // isCommonDomain checks if domain is too common to be useful as a filter
 func isCommonDomain(domain string) bool {
 	common := map[string]bool{
-		"gmail.com":     true,
-		"yahoo.com":     true,
-		"hotmail.com":   true,
-		"outlook.com":   true,
-		"icloud.com":    true,
+		"gmail.com":      true,
+		"yahoo.com":      true,
+		"hotmail.com":    true,
+		"outlook.com":    true,
+		"icloud.com":     true,
 		"protonmail.com": true,
-		"mail.com":      true,
+		"mail.com":       true,
 	}
 	return common[strings.ToLower(domain)]
 }

@@ -11,16 +11,16 @@ import (
 
 // ThreadEmail represents an email in a thread with full body content
 type ThreadEmail struct {
-	ID          string    `json:"id"`
-	Subject     string    `json:"subject"`
-	From        string    `json:"from"`
-	FromName    string    `json:"from_name,omitempty"`
-	To          string    `json:"to,omitempty"`
-	Date        time.Time `json:"date"`
-	Direction   string    `json:"direction"`
-	Body        string    `json:"body"`
-	Snippet     string    `json:"snippet,omitempty"`
-	ProviderID  string    `json:"provider_id,omitempty"`
+	ID         string    `json:"id"`
+	Subject    string    `json:"subject"`
+	From       string    `json:"from"`
+	FromName   string    `json:"from_name,omitempty"`
+	To         string    `json:"to,omitempty"`
+	Date       time.Time `json:"date"`
+	Direction  string    `json:"direction"`
+	Body       string    `json:"body"`
+	Snippet    string    `json:"snippet,omitempty"`
+	ProviderID string    `json:"provider_id,omitempty"`
 }
 
 // Thread represents a full email thread with conversation metadata
