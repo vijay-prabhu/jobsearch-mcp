@@ -32,7 +32,7 @@ type Thread struct {
 
 // FetchThread retrieves the full email thread for a conversation
 func (t *Tracker) FetchThread(ctx context.Context, companyOrID string) (*Thread, error) {
-	// Try to find conversation by company name first
+	// Try to find conversation by company name first (exact match)
 	conv, err := t.db.GetConversationByCompany(ctx, companyOrID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup conversation: %w", err)
@@ -43,6 +43,17 @@ func (t *Tracker) FetchThread(ctx context.Context, companyOrID string) (*Thread,
 		conv, err = t.db.GetConversation(ctx, companyOrID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup conversation: %w", err)
+		}
+	}
+
+	// If still not found, try search and use first result (partial match)
+	if conv == nil {
+		results, err := t.db.Search(ctx, companyOrID)
+		if err != nil {
+			return nil, fmt.Errorf("search failed: %w", err)
+		}
+		if len(results) > 0 {
+			conv = &results[0]
 		}
 	}
 
