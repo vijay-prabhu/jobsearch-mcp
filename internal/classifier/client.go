@@ -8,8 +8,12 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// ProgressCallback is called with progress updates during batch classification
+type ProgressCallback func(current, total int)
 
 // concurrentClassifications is the number of parallel LLM classification calls
 const concurrentClassifications = 5
@@ -167,11 +171,22 @@ type BatchClassifyResult struct {
 
 // ClassifyBatch classifies multiple emails in parallel
 func (c *Client) ClassifyBatch(ctx context.Context, requests []ClassifyRequest, primary, fallback string) []BatchClassifyResult {
+	return c.ClassifyBatchWithProgress(ctx, requests, primary, fallback, nil)
+}
+
+// ClassifyBatchWithProgress classifies multiple emails in parallel with progress reporting
+func (c *Client) ClassifyBatchWithProgress(ctx context.Context, requests []ClassifyRequest, primary, fallback string, progress ProgressCallback) []BatchClassifyResult {
 	results := make([]BatchClassifyResult, len(requests))
 	resultChan := make(chan BatchClassifyResult, len(requests))
+	var classifiedCount int64
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, concurrentClassifications)
+
+	total := len(requests)
+	if progress != nil {
+		progress(0, total)
+	}
 
 	for i, req := range requests {
 		wg.Add(1)
@@ -189,6 +204,13 @@ func (c *Client) ClassifyBatch(ctx context.Context, requests []ClassifyRequest, 
 
 			// Classify with fallback
 			resp, err := c.ClassifyWithFallback(ctx, r, primary, fallback)
+
+			// Report progress
+			if progress != nil {
+				current := int(atomic.AddInt64(&classifiedCount, 1))
+				progress(current, total)
+			}
+
 			resultChan <- BatchClassifyResult{Index: index, Response: resp, Error: err}
 		}(i, req)
 	}

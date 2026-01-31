@@ -11,6 +11,7 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/config"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/database"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/email"
+	"github.com/vijay-prabhu/jobsearch-mcp/internal/email/gmail"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/filter"
 )
 
@@ -45,8 +46,9 @@ func New(db *database.DB, provider email.Provider, f *filter.Filter, c *classifi
 
 // SyncOptions configures the sync behavior
 type SyncOptions struct {
-	Days     int  // Number of days to fetch (0 = use default or last sync)
-	FullSync bool // Ignore last sync time
+	Days     int              // Number of days to fetch (0 = use default or last sync)
+	FullSync bool             // Ignore last sync time
+	Progress ProgressCallback // Optional progress callback
 }
 
 // SyncResult contains the results of a sync operation
@@ -67,6 +69,18 @@ func (t *Tracker) Sync(ctx context.Context) (*SyncResult, error) {
 // SyncWithOptions fetches new emails with custom options
 func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*SyncResult, error) {
 	result := &SyncResult{}
+
+	// Helper to report progress
+	report := func(phase ProgressPhase, current, total int, desc string) {
+		if syncOpts.Progress != nil {
+			syncOpts.Progress(Progress{
+				Phase:       phase,
+				Current:     current,
+				Total:       total,
+				Description: desc,
+			})
+		}
+	}
 
 	// Get user email for direction detection
 	userEmail, err := t.provider.GetUserEmail(ctx)
@@ -98,6 +112,18 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 		opts.After = syncState.LastSyncAt
 	}
 
+	// Set up progress callback for email provider
+	if gmailProvider, ok := t.provider.(*gmail.Provider); ok {
+		gmailProvider.SetProgressCallback(func(phase string, current, total int) {
+			switch phase {
+			case "listing":
+				report(PhaseListingEmails, current, total, "Listing emails from Gmail")
+			case "fetching":
+				report(PhaseFetchingEmails, current, total, "Downloading email content")
+			}
+		})
+	}
+
 	// Fetch emails
 	emails, err := t.provider.FetchEmails(ctx, opts)
 	if err != nil {
@@ -114,9 +140,11 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 	}
 
 	// Apply filtering
+	report(PhaseFiltering, 0, len(emails), "Applying filters")
 	filtered := t.filter.ApplyBatch(emails)
 	included := filter.FilterIncluded(filtered)
 	uncertain := filter.FilterUncertain(filtered)
+	report(PhaseFiltering, len(emails), len(emails), "Filtering complete")
 
 	result.EmailsFiltered = len(included)
 
@@ -140,8 +168,11 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 			}
 		}
 
-		// Classify in parallel
-		batchResults := t.classifier.ClassifyBatch(ctx, requests, t.config.LLM.Primary, t.config.LLM.Fallback)
+		// Classify in parallel with progress reporting
+		classifyProgress := func(current, total int) {
+			report(PhaseClassifying, current, total, "Classifying with LLM")
+		}
+		batchResults := t.classifier.ClassifyBatchWithProgress(ctx, requests, t.config.LLM.Primary, t.config.LLM.Fallback, classifyProgress)
 
 		// Process results
 		for i, br := range batchResults {
@@ -172,7 +203,9 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 	}
 
 	// Process all included emails
-	for _, pe := range toProcess {
+	totalToProcess := len(toProcess)
+	for i, pe := range toProcess {
+		report(PhaseProcessing, i+1, totalToProcess, "Processing emails into conversations")
 		newConv, err := t.processEmail(ctx, &pe)
 		if err != nil {
 			result.Errors = append(result.Errors, err)
@@ -195,6 +228,7 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 	}
 
 	// Update conversation statuses
+	report(PhaseUpdatingStatus, 0, 0, "Updating conversation statuses")
 	if err := t.updateAllStatuses(ctx); err != nil {
 		result.Errors = append(result.Errors, fmt.Errorf("failed to update statuses: %w", err))
 	}

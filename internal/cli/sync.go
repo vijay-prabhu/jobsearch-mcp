@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/classifier"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/config"
@@ -102,14 +104,72 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	if syncDays > 0 {
-		fmt.Printf("Fetching emails (last %d days)...\n", syncDays)
+		fmt.Printf("Syncing emails (last %d days)...\n", syncDays)
 	} else if syncFull {
-		fmt.Println("Fetching emails (full sync)...")
+		fmt.Println("Syncing emails (full sync)...")
 	} else {
-		fmt.Println("Fetching emails...")
+		fmt.Println("Syncing emails...")
+	}
+
+	// Set up progress callback
+	var lastPhase tracker.ProgressPhase
+	isTerminal := term.IsTerminal(int(os.Stdout.Fd()))
+	syncOpts.Progress = func(p tracker.Progress) {
+		// Clear the line if we're in a terminal
+		if isTerminal {
+			fmt.Print("\r\033[K")
+		}
+
+		// Format progress message
+		var msg string
+		switch p.Phase {
+		case tracker.PhaseListingEmails:
+			if p.Total > 0 {
+				msg = fmt.Sprintf("📋 Listing emails: %d found", p.Current)
+			} else {
+				msg = "📋 Listing emails..."
+			}
+		case tracker.PhaseFetchingEmails:
+			pct := 0
+			if p.Total > 0 {
+				pct = (p.Current * 100) / p.Total
+			}
+			msg = fmt.Sprintf("📥 Downloading: %d/%d emails (%d%%)", p.Current, p.Total, pct)
+		case tracker.PhaseFiltering:
+			msg = fmt.Sprintf("🔍 Filtering: %d emails", p.Total)
+		case tracker.PhaseClassifying:
+			pct := 0
+			if p.Total > 0 {
+				pct = (p.Current * 100) / p.Total
+			}
+			msg = fmt.Sprintf("🤖 Classifying with LLM: %d/%d (%d%%)", p.Current, p.Total, pct)
+		case tracker.PhaseProcessing:
+			pct := 0
+			if p.Total > 0 {
+				pct = (p.Current * 100) / p.Total
+			}
+			msg = fmt.Sprintf("💾 Processing: %d/%d emails (%d%%)", p.Current, p.Total, pct)
+		case tracker.PhaseUpdatingStatus:
+			msg = "🔄 Updating conversation statuses..."
+		}
+
+		if isTerminal {
+			fmt.Print(msg)
+		} else {
+			// For non-terminals, only print when phase changes
+			if p.Phase != lastPhase {
+				fmt.Println(msg)
+				lastPhase = p.Phase
+			}
+		}
 	}
 
 	result, err := t.SyncWithOptions(ctx, syncOpts)
+
+	// Clear progress line
+	if isTerminal {
+		fmt.Print("\r\033[K")
+	}
 	if err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}

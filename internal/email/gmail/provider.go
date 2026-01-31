@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
@@ -12,15 +13,19 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/email"
 )
 
+// ProgressCallback is called with progress updates during fetching
+type ProgressCallback func(phase string, current, total int)
+
 // concurrentFetches is the number of parallel Gmail API calls
 const concurrentFetches = 10
 
 // Provider implements the email.Provider interface for Gmail
 type Provider struct {
-	credPath  string
-	tokenPath string
-	service   *gmail.Service
-	userEmail string
+	credPath         string
+	tokenPath        string
+	service          *gmail.Service
+	userEmail        string
+	progressCallback ProgressCallback
 }
 
 // New creates a new Gmail provider
@@ -34,6 +39,18 @@ func New(credPath, tokenPath string) *Provider {
 // Name returns the provider identifier
 func (p *Provider) Name() string {
 	return "gmail"
+}
+
+// SetProgressCallback sets a callback for progress updates
+func (p *Provider) SetProgressCallback(cb ProgressCallback) {
+	p.progressCallback = cb
+}
+
+// reportProgress reports progress if callback is set
+func (p *Provider) reportProgress(phase string, current, total int) {
+	if p.progressCallback != nil {
+		p.progressCallback(phase, current, total)
+	}
 }
 
 // IsAuthenticated checks if valid token exists
@@ -91,8 +108,12 @@ func (p *Provider) FetchEmails(ctx context.Context, opts email.FetchOptions) ([]
 	// Step 1: Collect all message IDs
 	var messageIDs []string
 	pageToken := ""
+	pageNum := 0
+
+	p.reportProgress("listing", 0, opts.MaxResults)
 
 	for {
+		pageNum++
 		req := p.service.Users.Messages.List("me").
 			Q(query).
 			MaxResults(int64(min(opts.MaxResults-len(messageIDs), 500)))
@@ -112,6 +133,8 @@ func (p *Provider) FetchEmails(ctx context.Context, opts email.FetchOptions) ([]
 				break
 			}
 		}
+
+		p.reportProgress("listing", len(messageIDs), opts.MaxResults)
 
 		pageToken = resp.NextPageToken
 		if pageToken == "" || len(messageIDs) >= opts.MaxResults {
@@ -138,9 +161,13 @@ func (p *Provider) fetchMessagesParallel(ctx context.Context, messageIDs []strin
 
 	results := make(chan result, len(messageIDs))
 	var wg sync.WaitGroup
+	var fetchedCount int64
 
 	// Semaphore to limit concurrent requests
 	sem := make(chan struct{}, concurrentFetches)
+
+	total := len(messageIDs)
+	p.reportProgress("fetching", 0, total)
 
 	// Launch workers
 	for i, msgID := range messageIDs {
@@ -166,6 +193,10 @@ func (p *Provider) fetchMessagesParallel(ctx context.Context, messageIDs []strin
 				results <- result{index: index, err: err}
 				return
 			}
+
+			// Report progress
+			current := int(atomic.AddInt64(&fetchedCount, 1))
+			p.reportProgress("fetching", current, total)
 
 			results <- result{index: index, email: convertMessage(fullMsg)}
 		}(i, msgID)
