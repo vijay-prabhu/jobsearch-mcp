@@ -1,161 +1,157 @@
 # jobsearch-mcp
 
-A developer-focused job search automation tool that tracks recruiter conversations from your email with CLI and MCP (Model Context Protocol) server support.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://python.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
+
+Track your job search conversations from email. Automatically syncs, classifies, and organizes recruiter emails so you never miss a follow-up.
 
 ## Features
 
-- **Email Integration**: Connects to Gmail via OAuth to fetch job-related emails
-- **Smart Filtering**: Multi-layer filtering (domain whitelist/blacklist, keywords, LLM classification)
-- **Conversation Tracking**: Groups emails into conversations, tracks status (waiting on me/them, stale)
-- **CLI Interface**: Full-featured command-line interface for managing job search
-- **MCP Server**: Integrates with Claude Desktop/Cursor for AI-assisted job search management
-- **Privacy-First**: Stores metadata only by default, optional encrypted body storage
-- **Local LLM Support**: Uses Ollama for classification (with OpenAI fallback)
+- **Smart Email Classification** - AI-powered filtering distinguishes real recruiter conversations from job alerts and spam
+- **Conversation Tracking** - Groups email threads, tracks who's waiting on whom
+- **Stale Detection** - Highlights conversations that need follow-up
+- **Natural Language Queries** - Ask about your job search in plain English (works with any AI agent/CLI)
+- **MCP Integration** - Works with Claude Desktop, Cursor, and other MCP clients
+- **Privacy-First** - Stores metadata only, runs locally, your data stays yours
+- **Extensible** - Pluggable email providers (Gmail included, add your own)
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Go Layer                                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
-│  │   CLI    │  │   MCP    │  │  Email   │  │     SQLite       │ │
-│  │  (Cobra) │  │  Server  │  │ Fetcher  │  │    Database      │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┬─────────┘ │
-│       │             │             │                  │           │
-│       └─────────────┴──────┬──────┴──────────────────┘           │
-│                            │                                     │
-└────────────────────────────┼─────────────────────────────────────┘
-                             │ HTTP
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Python Layer                                │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │              Classification Service (FastAPI)             │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐  │   │
-│  │  │   Ollama    │  │   OpenAI    │  │    Structured    │  │   │
-│  │  │  (Primary)  │  │ (Fallback)  │  │    Extraction    │  │   │
-│  │  └─────────────┘  └─────────────┘  └──────────────────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## Prerequisites
-
-- Go 1.22+
-- Python 3.11+
-- [Ollama](https://ollama.ai) with `llama3.2:1b` model
-- Google Cloud project with Gmail API enabled
-
-## Installation
-
-### From Source
+## Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/vijay-prabhu/jobsearch-mcp.git
 cd jobsearch-mcp
-
-# Build Go binary
 make build
-
-# Install Python dependencies
 make setup-python
 ```
 
-### Gmail API Setup
+### As a Skill (Claude Code, Cursor, etc.)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select existing)
-3. Enable the Gmail API:
-   - Navigate to "APIs & Services" > "Library"
-   - Search for "Gmail API" and enable it
-4. Create OAuth 2.0 credentials:
-   - Go to "APIs & Services" > "Credentials"
-   - Click "Create Credentials" > "OAuth client ID"
-   - Select "Desktop app" as application type
-   - Download the JSON file
-5. Save as `~/.config/jobsearch/credentials.json`
+The included `SKILL.md` provides natural language command mappings that AI agents can use. For Claude Code:
 
-## Quick Start
+```bash
+git clone https://github.com/vijay-prabhu/jobsearch-mcp.git ~/.claude/skills/jobsearch
+cd ~/.claude/skills/jobsearch && make build && make setup-python
+```
+
+Other AI agents can use `SKILL.md` directly - it maps natural language queries to CLI commands.
+
+## Setup
 
 ```bash
 # Initialize configuration
 jobsearch config init
 
-# Authenticate with Gmail (opens browser)
+# Add your email provider credentials (see Email Providers below)
+# Then sync your inbox
 jobsearch sync
-
-# List conversations needing your response
-jobsearch list --status=waiting_on_me
-
-# Show details for a specific company
-jobsearch show stripe
-
-# Get job search statistics
-jobsearch stats
 ```
 
-## Configuration
+## Examples
 
-Configuration file location: `~/.config/jobsearch/config.toml`
+### Natural language queries
+
+Works with any AI agent that can execute shell commands:
+
+```
+how's my job search going?
+what conversations need my attention?
+show me the Stripe conversation
+who haven't I heard back from?
+what should I follow up on?
+any interviews scheduled?
+```
+
+### CLI commands
+
+```bash
+# Get overview
+jobsearch stats
+
+# Conversations needing your response
+jobsearch list --status=waiting_on_me
+
+# Conversations you're waiting on
+jobsearch list --status=waiting_on_them
+
+# Stale conversations (need follow-up)
+jobsearch list --status=stale
+
+# View specific company
+jobsearch show stripe
+
+# Recent activity
+jobsearch list --since=7d
+
+# Search across everything
+jobsearch search "onsite interview"
+```
+
+### Example output
+
+```
+Job Search Overview
+━━━━━━━━━━━━━━━━━━━
+Total Conversations: 24
+├── Waiting on me: 3
+├── Waiting on them: 8
+├── Stale (need follow-up): 5
+└── Closed: 8
+
+Conversations Needing Action
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Stripe - Sarah Chen (sarah@stripe.com)
+  Last contact: 2 days ago
+  Status: Waiting on me
+
+Anthropic - Mike Johnson (mike@anthropic.com)
+  Last contact: 1 day ago
+  Status: Waiting on me
+```
+
+## Email Providers
+
+jobsearch-mcp uses a pluggable provider architecture. Configure your provider in `~/.config/jobsearch/config.toml`:
+
+### Gmail (included)
 
 ```toml
+[email]
+provider = "gmail"
+
 [gmail]
 credentials_path = "~/.config/jobsearch/credentials.json"
 token_path = "~/.config/jobsearch/token.json"
-max_results = 100
-
-[database]
-path = "~/.local/share/jobsearch/jobsearch.db"
-
-[llm]
-primary = "ollama"
-fallback = "openai"
-
-[llm.ollama]
-model = "llama3.2:1b"
-host = "http://localhost:11434"
-
-[llm.openai]
-model = "gpt-4o-mini"
-# API key read from OPENAI_API_KEY env var
-
-[classifier]
-port = 8642
-
-[filters]
-domain_whitelist = ["greenhouse.io", "lever.co", "ashbyhq.com"]
-domain_blacklist = ["noreply@linkedin.com", "mailchimp.com"]
-subject_blacklist = ["job alert", "new jobs for you", "weekly digest"]
-subject_keywords = ["opportunity", "role", "position", "interview"]
-body_keywords = ["your background", "schedule a call", "reaching out"]
-
-[tracking]
-stale_after_days = 7
-
-[privacy]
-store_email_body = false
-
-[mcp]
-enabled = true
-transport = "stdio"
 ```
 
-## CLI Commands
+**Setup**: Create OAuth credentials in [Google Cloud Console](https://console.cloud.google.com/), enable Gmail API, download credentials JSON.
 
-| Command | Description |
-|---------|-------------|
-| `jobsearch sync` | Fetch and process new emails |
-| `jobsearch list` | List conversations (with filters) |
-| `jobsearch show <company>` | Show conversation details |
-| `jobsearch stats` | Display job search statistics |
-| `jobsearch search <query>` | Search across conversations |
-| `jobsearch config init` | Create default config file |
-| `jobsearch mcp` | Start MCP server (stdio) |
+### Adding Other Providers
+
+The codebase supports adding new email providers by implementing the `Provider` interface:
+
+```go
+type Provider interface {
+    Name() string
+    Authenticate(ctx context.Context) error
+    FetchEmails(ctx context.Context, opts FetchOptions) ([]Email, error)
+    GetEmail(ctx context.Context, id string) (*Email, error)
+    GetUserEmail(ctx context.Context) (string, error)
+}
+```
+
+See `internal/email/gmail/` for reference implementation. Contributions welcome for:
+- Outlook (Microsoft Graph API)
+- IMAP (generic)
+- ProtonMail Bridge
 
 ## MCP Integration
 
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add to your MCP client config:
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -168,27 +164,94 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 }
 ```
 
-### Available MCP Tools
+### MCP Tools
 
-- `list_conversations` - List job search conversations with filters
-- `get_conversation` - Get details of a specific conversation
-- `get_pending_actions` - Get conversations needing attention
-- `search_conversations` - Search across all conversations
-- `get_stats` - Get job search statistics
+| Tool | Description |
+|------|-------------|
+| `list_conversations` | List conversations with filters |
+| `get_conversation` | Get details of a specific conversation |
+| `get_pending_actions` | Conversations needing your response |
+| `search_conversations` | Search across all conversations |
+| `get_stats` | Job search statistics |
+
+### MCP Resources
+
+| Resource | Description |
+|----------|-------------|
+| `jobsearch://summary` | Overview with key metrics |
+| `jobsearch://pending` | Conversations needing action |
+| `jobsearch://recent` | Recent activity |
+| `jobsearch://companies` | All companies you're talking to |
+
+## Configuration
+
+Full config at `~/.config/jobsearch/config.toml`:
+
+```toml
+[email]
+provider = "gmail"  # or your provider
+
+[database]
+path = "~/.local/share/jobsearch/jobsearch.db"
+
+[classifier]
+port = 8642
+
+[llm]
+primary = "ollama"      # Local-first
+fallback = "openai"     # Cloud fallback
+
+[llm.ollama]
+model = "llama3.2:1b"
+host = "http://localhost:11434"
+
+[filters]
+domain_whitelist = ["greenhouse.io", "lever.co", "ashbyhq.com"]
+domain_blacklist = ["noreply@linkedin.com"]
+subject_blacklist = ["job alert", "weekly digest"]
+
+[tracking]
+stale_after_days = 7
+
+[privacy]
+store_email_body = false  # Metadata only by default
+```
+
+## How It Works
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│    Email     │────▶│   Filter &   │────▶│   SQLite     │
+│   Provider   │     │   Classify   │     │   Database   │
+└──────────────┘     └──────────────┘     └──────────────┘
+                            │
+                     ┌──────┴──────┐
+                     │  LLM Layer  │
+                     │ Ollama/API  │
+                     └─────────────┘
+```
+
+1. **Sync** - Fetches new emails from your provider
+2. **Filter** - Multi-layer filtering (domains, keywords, patterns)
+3. **Classify** - LLM determines if email is job-related
+4. **Track** - Groups into conversations, computes status
+5. **Query** - CLI, MCP, or natural language access
 
 ## Development
 
 ```bash
-# Run tests
-make test
-
-# Run linters
-make lint
-
-# Start classifier service (for development)
-make serve-classifier
+make build          # Build Go binary
+make test           # Run all tests
+make lint           # Run linters
+make serve-classifier  # Start classification service
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**Want to add an email provider?** Implement the `Provider` interface and submit a PR.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT - see [LICENSE](LICENSE)
