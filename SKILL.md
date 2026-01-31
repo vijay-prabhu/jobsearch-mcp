@@ -20,6 +20,7 @@ Track recruiter conversations from your email with smart filtering and status tr
 | Stale conversations | `jobsearch list --status=stale -o json` |
 | Recent activity | `jobsearch list --since=7d -o json` |
 | Specific company | `jobsearch show <company> -o json` |
+| **Full email thread** | `jobsearch thread <company> -o json` |
 | Search | `jobsearch search "<query>" -o json` |
 | Sync new emails | `jobsearch sync` |
 
@@ -51,6 +52,13 @@ When user asks about their job search:
 - "show me Stripe" → `jobsearch show stripe -o json`
 - "what's happening with Google?" → `jobsearch show google -o json`
 - "Anthropic conversation" → `jobsearch show anthropic -o json`
+
+### Full thread queries (fetches complete email content)
+- "show me the full thread with Stripe" → `jobsearch thread stripe -o json`
+- "read the Anthropic conversation" → `jobsearch thread anthropic -o json`
+- "what did the Google recruiter say?" → `jobsearch thread google -o json`
+- "pull up the emails from Discord" → `jobsearch thread discord -o json`
+- "let me see the full conversation with Meta" → `jobsearch thread meta -o json`
 
 ### Time-based queries
 - "recent conversations" → `jobsearch list --since=7d -o json`
@@ -109,4 +117,37 @@ Timeline:
 • Jan 22 - You responded with interest
 • Jan 25 - Phone screen scheduled
 • Jan 28 - They sent interview prep materials
+```
+
+### For full email thread:
+```
+Thread: Stripe
+━━━━━━━━━━━━━━
+Recruiter: Sarah Chen (sarah@stripe.com)
+Position: Senior Software Engineer
+Status: Waiting on me
+
+[1/3] RECEIVED - Mon, Jan 20 2025 10:30 AM
+From: sarah@stripe.com (Sarah Chen)
+Subject: Exciting opportunity at Stripe
+
+Hi! I came across your profile and was impressed by your background
+in distributed systems. We have an exciting Senior Engineer role...
+
+---
+
+[2/3] SENT - Wed, Jan 22 2025 2:15 PM
+From: you@email.com
+Subject: Re: Exciting opportunity at Stripe
+
+Hi Sarah, thank you for reaching out! I'd love to learn more
+about the role...
+
+---
+
+[3/3] RECEIVED - Sat, Jan 25 2025 9:00 AM
+From: sarah@stripe.com (Sarah Chen)
+Subject: Re: Exciting opportunity at Stripe
+
+Great to hear back from you! Let's schedule a call...
 ```

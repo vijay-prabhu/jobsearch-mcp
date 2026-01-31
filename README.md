@@ -58,9 +58,10 @@ Works with any AI agent that can execute shell commands:
 how's my job search going?
 what conversations need my attention?
 show me the Stripe conversation
+read the full email thread with Google
 who haven't I heard back from?
 what should I follow up on?
-any interviews scheduled?
+what did the Anthropic recruiter say?
 ```
 
 ### CLI commands
@@ -80,6 +81,9 @@ jobsearch list --status=stale
 
 # View specific company
 jobsearch show stripe
+
+# Read full email thread (fetches content on demand)
+jobsearch thread stripe
 
 # Recent activity
 jobsearch list --since=7d

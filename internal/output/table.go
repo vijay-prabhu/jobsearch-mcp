@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/database"
+	"github.com/vijay-prabhu/jobsearch-mcp/internal/tracker"
 )
 
 // Table writes data as a formatted table to stdout
@@ -24,6 +25,8 @@ func TableTo(w io.Writer, data interface{}) error {
 		return conversationDetail(w, v)
 	case *database.Stats:
 		return statsTable(w, v)
+	case *tracker.Thread:
+		return threadDetail(w, v)
 	default:
 		return fmt.Errorf("unsupported data type for table output: %T", data)
 	}
@@ -179,4 +182,110 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
+}
+
+// threadDetail formats a full email thread for display
+func threadDetail(w io.Writer, t *tracker.Thread) error {
+	c := t.Conversation
+
+	// Header
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+	fmt.Fprintf(w, "Thread: %s\n", c.Company)
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+
+	// Conversation metadata
+	if c.RecruiterName != nil && *c.RecruiterName != "" {
+		fmt.Fprintf(w, "Recruiter:   %s", *c.RecruiterName)
+		if c.RecruiterEmail != nil {
+			fmt.Fprintf(w, " <%s>", *c.RecruiterEmail)
+		}
+		fmt.Fprintln(w)
+	} else if c.RecruiterEmail != nil {
+		fmt.Fprintf(w, "Recruiter:   %s\n", *c.RecruiterEmail)
+	}
+
+	if c.Position != nil && *c.Position != "" {
+		fmt.Fprintf(w, "Position:    %s\n", *c.Position)
+	}
+
+	fmt.Fprintf(w, "Status:      %s\n", formatStatusShort(c.Status))
+	fmt.Fprintf(w, "Emails:      %d\n", len(t.Emails))
+	fmt.Fprintln(w)
+
+	// Email thread
+	for i, email := range t.Emails {
+		fmt.Fprintln(w, strings.Repeat("-", 60))
+
+		// Email header
+		direction := "RECEIVED"
+		if email.Direction == "outbound" {
+			direction = "SENT"
+		}
+
+		fmt.Fprintf(w, "[%d/%d] %s - %s\n", i+1, len(t.Emails), direction, email.Date.Format("Mon, Jan 02 2006 3:04 PM"))
+		fmt.Fprintf(w, "From: %s", email.From)
+		if email.FromName != "" {
+			fmt.Fprintf(w, " (%s)", email.FromName)
+		}
+		fmt.Fprintln(w)
+
+		if email.To != "" {
+			fmt.Fprintf(w, "To:   %s\n", email.To)
+		}
+		fmt.Fprintf(w, "Subject: %s\n", email.Subject)
+		fmt.Fprintln(w)
+
+		// Email body
+		body := email.Body
+		if body == "" {
+			body = email.Snippet
+		}
+		if body == "" {
+			body = "(no content)"
+		}
+
+		// Word wrap the body for readability
+		fmt.Fprintln(w, wordWrap(body, 78))
+		fmt.Fprintln(w)
+	}
+
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+	fmt.Fprintf(w, "End of thread (%d emails)\n", len(t.Emails))
+
+	return nil
+}
+
+// wordWrap wraps text at the specified width
+func wordWrap(text string, width int) string {
+	var result strings.Builder
+	lines := strings.Split(text, "\n")
+
+	for _, line := range lines {
+		if len(line) <= width {
+			result.WriteString(line)
+			result.WriteString("\n")
+			continue
+		}
+
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			result.WriteString("\n")
+			continue
+		}
+
+		currentLine := words[0]
+		for _, word := range words[1:] {
+			if len(currentLine)+1+len(word) <= width {
+				currentLine += " " + word
+			} else {
+				result.WriteString(currentLine)
+				result.WriteString("\n")
+				currentLine = word
+			}
+		}
+		result.WriteString(currentLine)
+		result.WriteString("\n")
+	}
+
+	return strings.TrimSuffix(result.String(), "\n")
 }
