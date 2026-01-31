@@ -1,7 +1,7 @@
 # jobsearch-mcp
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://go.dev)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://python.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
 
@@ -24,6 +24,12 @@ git clone https://github.com/vijay-prabhu/jobsearch-mcp.git
 cd jobsearch-mcp
 make build
 make setup-python
+make install-local  # Installs to ~/bin
+```
+
+Add `~/bin` to your PATH if not already:
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 ```
 
 ### As a Skill (Claude Code, Cursor, etc.)
@@ -32,7 +38,7 @@ The included `SKILL.md` provides natural language command mappings that AI agent
 
 ```bash
 git clone https://github.com/vijay-prabhu/jobsearch-mcp.git ~/.claude/skills/jobsearch
-cd ~/.claude/skills/jobsearch && make build && make setup-python
+cd ~/.claude/skills/jobsearch && make build && make setup-python && make install-local
 ```
 
 Other AI agents can use `SKILL.md` directly - it maps natural language queries to CLI commands.
@@ -244,10 +250,12 @@ store_email_body = false  # Metadata only by default
 ## Development
 
 ```bash
-make build          # Build Go binary
-make test           # Run all tests
-make lint           # Run linters
-make serve-classifier  # Start classification service
+make build            # Build Go binary
+make test             # Run all tests
+make lint             # Run linters
+make install-local    # Install to ~/bin (no sudo)
+make install-system   # Install to /usr/local/bin (sudo)
+make serve-classifier # Start classification service
 ```
 
 ## Contributing

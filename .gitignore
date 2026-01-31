@@ -8,6 +8,7 @@
 *.out
 vendor/
 bin/
+/jobsearch
 
 # Python
 __pycache__/

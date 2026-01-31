@@ -10,6 +10,17 @@ Track recruiter conversations from your email with smart filtering and status tr
 
 > **Note**: This skill maps natural language to CLI commands. It works with Claude Code, Cursor, and any AI agent that can execute shell commands. The frontmatter above is for Claude Code; other agents can ignore it and use the command mappings below.
 
+## Prerequisites
+
+The `jobsearch` CLI must be installed and available in PATH. From the project directory:
+
+```bash
+make install-local  # Installs to ~/bin (no sudo)
+
+# Add ~/bin to PATH in your shell profile:
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
+```
+
 ## Commands
 
 | Query Type | Command |
