@@ -22,6 +22,7 @@ Implement an MCP server using JSON-RPC over stdio transport.
 
 1. **list_conversations**
    - List all conversations with optional status filter
+   - Supports `include_archived` parameter
    - Returns: array of conversation summaries
 
 2. **get_conversation**
@@ -29,19 +30,29 @@ Implement an MCP server using JSON-RPC over stdio transport.
    - Input: company name or conversation ID
    - Returns: conversation details + emails
 
-3. **search_conversations**
+3. **get_pending_actions**
+   - Get conversations needing attention
+   - Returns: waiting_on_me and stale conversations
+
+4. **search_conversations**
    - Full-text search across conversations
    - Input: query string
    - Returns: matching conversations
 
-4. **get_stats**
+5. **get_stats**
    - Dashboard statistics
-   - Returns: counts by status, response times
+   - Supports `detailed` flag for extended breakdown
+   - Returns: counts by status, response rates
 
-5. **update_status**
-   - Manually update conversation status
-   - Input: conversation ID, new status
-   - Returns: updated conversation
+6. **merge_conversations**
+   - Merge two conversations into one
+   - Input: target and source identifiers
+   - Returns: merge result with email count
+
+7. **archive_conversation**
+   - Archive or unarchive a conversation
+   - Input: identifier, unarchive flag
+   - Returns: archive result
 
 ## Consequences
 

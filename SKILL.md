@@ -26,6 +26,7 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 | Query Type | Command |
 |------------|---------|
 | Overview | `jobsearch stats -o json` |
+| Detailed stats | `jobsearch stats --detailed -o json` |
 | Pending actions | `jobsearch list --status=waiting_on_me -o json` |
 | Waiting on them | `jobsearch list --status=waiting_on_them -o json` |
 | Stale conversations | `jobsearch list --status=stale -o json` |
@@ -34,6 +35,14 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 | **Full email thread** | `jobsearch thread <company> -o json` |
 | Search | `jobsearch search "<query>" -o json` |
 | Sync new emails | `jobsearch sync` |
+| Sync with date range | `jobsearch sync --days=60` |
+| Full sync | `jobsearch sync --full` |
+| Merge conversations | `jobsearch merge "<target>" "<source>"` |
+| Archive conversation | `jobsearch archive "<company>"` |
+| Unarchive conversation | `jobsearch unarchive "<company>"` |
+| List with archived | `jobsearch list --include-archived -o json` |
+| Export to CSV | `jobsearch export --format=csv` |
+| Export to JSON | `jobsearch export --format=json` |
 
 ## Instructions
 
@@ -43,6 +52,9 @@ When user asks about their job search:
 - "how's my job search going?" → `jobsearch stats -o json`
 - "give me an overview" → `jobsearch stats -o json`
 - "what are my numbers?" → `jobsearch stats -o json`
+- "detailed statistics" → `jobsearch stats --detailed -o json`
+- "show me a breakdown" → `jobsearch stats --detailed -o json`
+- "response rate" → `jobsearch stats --detailed -o json`
 
 ### Action queries
 - "what needs my attention?" → `jobsearch list --status=waiting_on_me -o json`
@@ -83,6 +95,28 @@ When user asks about their job search:
 ### Sync
 - "check for new emails" → `jobsearch sync`
 - "sync my inbox" → `jobsearch sync`
+- "sync last 60 days" → `jobsearch sync --days=60`
+- "sync the past month" → `jobsearch sync --days=30`
+- "sync last 90 days" → `jobsearch sync --days=90`
+- "full sync" → `jobsearch sync --full`
+- "resync everything" → `jobsearch sync --full`
+
+### Merge
+- "merge Stripe conversations" → `jobsearch merge "Stripe" "stripe-2"`
+- "combine these conversations" → `jobsearch merge "<target>" "<source>"`
+- "merge X into Y" → `jobsearch merge "Y" "X"` (target first, then source)
+
+### Archive
+- "archive the Stripe conversation" → `jobsearch archive "Stripe"`
+- "hide this conversation" → `jobsearch archive "<company>"`
+- "unarchive Stripe" → `jobsearch unarchive "Stripe"`
+- "show archived conversations" → `jobsearch list --include-archived -o json`
+
+### Export
+- "export to spreadsheet" → `jobsearch export --format=csv`
+- "export as CSV" → `jobsearch export --format=csv`
+- "export as JSON" → `jobsearch export --format=json`
+- "download my conversations" → `jobsearch export --format=csv`
 
 ## Output Formatting
 

@@ -38,11 +38,11 @@ func (db *DB) GetConversation(ctx context.Context, id string) (*Conversation, er
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
 		FROM conversations WHERE id = ?
 	`, id).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -64,12 +64,12 @@ func (db *DB) GetConversationByCompany(ctx context.Context, company string) (*Co
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
 		FROM conversations WHERE LOWER(company) = LOWER(?)
 		ORDER BY last_activity_at DESC LIMIT 1
 	`, company).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -113,10 +113,15 @@ func (db *DB) UpdateConversation(ctx context.Context, c *Conversation) error {
 func (db *DB) ListConversations(ctx context.Context, opts ListOptions) ([]Conversation, error) {
 	query := `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
 		FROM conversations WHERE 1=1
 	`
 	args := []interface{}{}
+
+	// By default, exclude archived conversations
+	if !opts.IncludeArchived {
+		query += " AND archived = FALSE"
+	}
 
 	if opts.Status != nil {
 		query += " AND status = ?"
@@ -157,7 +162,7 @@ func (db *DB) ListConversations(ctx context.Context, opts ListOptions) ([]Conver
 
 		if err := rows.Scan(
 			&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -315,14 +320,14 @@ func (db *DB) Search(ctx context.Context, query string) ([]Conversation, error) 
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT DISTINCT c.id, c.company, c.position, c.recruiter_name, c.recruiter_email,
-		       c.direction, c.status, c.last_activity_at, c.email_count, c.created_at, c.updated_at
+		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.created_at, c.updated_at
 		FROM conversations c
 		LEFT JOIN emails e ON c.id = e.conversation_id
-		WHERE LOWER(c.company) LIKE ?
+		WHERE (LOWER(c.company) LIKE ?
 		   OR LOWER(c.position) LIKE ?
 		   OR LOWER(c.recruiter_name) LIKE ?
 		   OR LOWER(c.recruiter_email) LIKE ?
-		   OR LOWER(e.subject) LIKE ?
+		   OR LOWER(e.subject) LIKE ?)
 		ORDER BY c.last_activity_at DESC
 	`, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern)
 	if err != nil {
@@ -337,7 +342,7 @@ func (db *DB) Search(ctx context.Context, query string) ([]Conversation, error) 
 
 		if err := rows.Scan(
 			&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -389,14 +394,14 @@ func (db *DB) GetConversationByThreadID(ctx context.Context, threadID string) (*
 
 	err := db.QueryRowContext(ctx, `
 		SELECT c.id, c.company, c.position, c.recruiter_name, c.recruiter_email,
-		       c.direction, c.status, c.last_activity_at, c.email_count, c.created_at, c.updated_at
+		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.created_at, c.updated_at
 		FROM conversations c
 		INNER JOIN emails e ON c.id = e.conversation_id
 		WHERE e.thread_id = ?
 		LIMIT 1
 	`, threadID).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -625,14 +630,14 @@ func (db *DB) GetConversationByRecruiterEmail(ctx context.Context, email string)
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
 		FROM conversations
 		WHERE LOWER(recruiter_email) = LOWER(?)
 		ORDER BY last_activity_at DESC
 		LIMIT 1
 	`, email).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -713,5 +718,62 @@ func (db *DB) MergeConversations(ctx context.Context, targetID, sourceID string)
 		SourceID:    sourceID,
 		EmailsMoved: emailsMoved,
 		TotalEmails: totalEmails,
+	}, nil
+}
+
+// ArchiveResult contains the result of an archive operation
+type ArchiveResult struct {
+	ConversationID string `json:"conversation_id"`
+	Company        string `json:"company"`
+	Archived       bool   `json:"archived"`
+}
+
+// ArchiveConversation archives a conversation
+func (db *DB) ArchiveConversation(ctx context.Context, id string) (*ArchiveResult, error) {
+	// Get conversation first to return company name
+	conv, err := db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found: %s", id)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		UPDATE conversations SET archived = TRUE, updated_at = ? WHERE id = ?
+	`, time.Now(), id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to archive conversation: %w", err)
+	}
+
+	return &ArchiveResult{
+		ConversationID: id,
+		Company:        conv.Company,
+		Archived:       true,
+	}, nil
+}
+
+// UnarchiveConversation unarchives a conversation
+func (db *DB) UnarchiveConversation(ctx context.Context, id string) (*ArchiveResult, error) {
+	// Get conversation first to return company name
+	conv, err := db.GetConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found: %s", id)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		UPDATE conversations SET archived = FALSE, updated_at = ? WHERE id = ?
+	`, time.Now(), id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unarchive conversation: %w", err)
+	}
+
+	return &ArchiveResult{
+		ConversationID: id,
+		Company:        conv.Company,
+		Archived:       false,
 	}, nil
 }

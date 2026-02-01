@@ -3,10 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
+	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/classifier"
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/config"
@@ -111,65 +110,82 @@ func runSync(cmd *cobra.Command, args []string) error {
 		fmt.Println("Syncing emails...")
 	}
 
-	// Set up progress callback
+	// Set up progress callback with terminal utilities
 	var lastPhase tracker.ProgressPhase
-	isTerminal := term.IsTerminal(int(os.Stdout.Fd()))
+	var phaseStartTime time.Time
+	terminal := NewTerminal()
+
 	syncOpts.Progress = func(p tracker.Progress) {
-		// Clear the line if we're in a terminal
-		if isTerminal {
-			fmt.Print("\r\033[K")
+		// Track phase start time for ETA
+		if p.Phase != lastPhase {
+			phaseStartTime = time.Now()
 		}
+		p.StartedAt = phaseStartTime
+
+		// Clear the line if we're in a terminal
+		terminal.ClearLine()
+
+		// Get phase color
+		phaseColor := PhaseColor(string(p.Phase))
 
 		// Format progress message
 		var msg string
+		var eta string
 		switch p.Phase {
 		case tracker.PhaseListingEmails:
 			if p.Total > 0 {
 				msg = fmt.Sprintf("📋 Listing emails: %d found", p.Current)
 			} else {
-				msg = "📋 Listing emails..."
+				spinner := terminal.Spinner()
+				msg = fmt.Sprintf("%s 📋 Listing emails...", spinner)
 			}
 		case tracker.PhaseFetchingEmails:
-			pct := 0
-			if p.Total > 0 {
-				pct = (p.Current * 100) / p.Total
+			pct := p.Percentage()
+			if etaDur := p.ETA(); etaDur > 0 {
+				eta = fmt.Sprintf(" (ETA: %s)", FormatETA(etaDur))
 			}
-			msg = fmt.Sprintf("📥 Downloading: %d/%d emails (%d%%)", p.Current, p.Total, pct)
+			msg = fmt.Sprintf("📥 Downloading: %d/%d emails (%d%%)%s", p.Current, p.Total, pct, eta)
 		case tracker.PhaseFiltering:
-			msg = fmt.Sprintf("🔍 Filtering: %d emails", p.Total)
+			spinner := terminal.Spinner()
+			msg = fmt.Sprintf("%s 🔍 Filtering: %d emails", spinner, p.Total)
 		case tracker.PhaseClassifying:
-			pct := 0
-			if p.Total > 0 {
-				pct = (p.Current * 100) / p.Total
+			pct := p.Percentage()
+			if etaDur := p.ETA(); etaDur > 0 {
+				eta = fmt.Sprintf(" (ETA: %s)", FormatETA(etaDur))
 			}
-			msg = fmt.Sprintf("🤖 Classifying with LLM: %d/%d (%d%%)", p.Current, p.Total, pct)
+			msg = fmt.Sprintf("🤖 Classifying with LLM: %d/%d (%d%%)%s", p.Current, p.Total, pct, eta)
 		case tracker.PhaseProcessing:
-			pct := 0
-			if p.Total > 0 {
-				pct = (p.Current * 100) / p.Total
+			pct := p.Percentage()
+			if etaDur := p.ETA(); etaDur > 0 {
+				eta = fmt.Sprintf(" (ETA: %s)", FormatETA(etaDur))
 			}
-			msg = fmt.Sprintf("💾 Processing: %d/%d emails (%d%%)", p.Current, p.Total, pct)
+			msg = fmt.Sprintf("💾 Processing: %d/%d emails (%d%%)%s", p.Current, p.Total, pct, eta)
 		case tracker.PhaseUpdatingStatus:
-			msg = "🔄 Updating conversation statuses..."
+			spinner := terminal.Spinner()
+			msg = fmt.Sprintf("%s 🔄 Updating conversation statuses...", spinner)
 		}
 
-		if isTerminal {
+		// Apply color in terminal mode
+		if terminal.UseColor {
+			msg = terminal.Color(phaseColor, msg)
+		}
+
+		if terminal.IsTerminal {
 			fmt.Print(msg)
 		} else {
 			// For non-terminals, only print when phase changes
 			if p.Phase != lastPhase {
 				fmt.Println(msg)
-				lastPhase = p.Phase
 			}
 		}
+		lastPhase = p.Phase
 	}
 
 	result, err := t.SyncWithOptions(ctx, syncOpts)
 
 	// Clear progress line
-	if isTerminal {
-		fmt.Print("\r\033[K")
-	}
+	terminal.ClearLine()
+
 	if err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}

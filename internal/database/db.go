@@ -14,6 +14,12 @@ import (
 //go:embed migrations/001_initial.sql
 var initialMigration string
 
+//go:embed migrations/002_add_archived.sql
+var archivedMigration string
+
+//go:embed migrations/003_performance_indexes.sql
+var performanceIndexesMigration string
+
 // DB wraps the SQL database connection
 type DB struct {
 	*sql.DB
@@ -61,7 +67,7 @@ func MustOpen(path string) *DB {
 
 // migrate runs database migrations
 func (db *DB) migrate() error {
-	// Check if we need to run migrations
+	// Check if we need to run initial migration
 	var tableCount int
 	err := db.QueryRow(`
 		SELECT COUNT(*) FROM sqlite_master
@@ -75,6 +81,40 @@ func (db *DB) migrate() error {
 		// Run initial migration
 		if _, err := db.Exec(initialMigration); err != nil {
 			return fmt.Errorf("failed to run initial migration: %w", err)
+		}
+	}
+
+	// Check if archived column exists (migration 002)
+	var archivedExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('conversations')
+		WHERE name='archived'
+	`).Scan(&archivedExists)
+	if err != nil {
+		return fmt.Errorf("failed to check archived column: %w", err)
+	}
+
+	if archivedExists == 0 {
+		// Run archived migration
+		if _, err := db.Exec(archivedMigration); err != nil {
+			return fmt.Errorf("failed to run archived migration: %w", err)
+		}
+	}
+
+	// Check if performance indexes exist (migration 003)
+	var perfIndexExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='index' AND name='idx_conversations_status_archived'
+	`).Scan(&perfIndexExists)
+	if err != nil {
+		return fmt.Errorf("failed to check performance indexes: %w", err)
+	}
+
+	if perfIndexExists == 0 {
+		// Run performance indexes migration
+		if _, err := db.Exec(performanceIndexesMigration); err != nil {
+			return fmt.Errorf("failed to run performance indexes migration: %w", err)
 		}
 	}
 

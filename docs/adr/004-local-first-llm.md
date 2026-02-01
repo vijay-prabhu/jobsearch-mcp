@@ -41,6 +41,7 @@ model = "gpt-4o-mini"
 - Works offline
 - Fast classification (~1s per email)
 - User can opt into cloud for higher accuracy
+- Classification caching reduces redundant LLM calls
 
 ### Negative
 - Requires Ollama installation

@@ -115,6 +115,8 @@ model = "gpt-4o-mini"
 [classifier]
 host = "http://localhost"
 port = 8642
+cache_enabled = true     # Cache LLM classifications to avoid redundant calls
+min_confidence = 0.5     # Minimum confidence threshold (0.0-1.0)
 
 [filters]
 # Layer 1: Always include emails from these domains

@@ -48,8 +48,10 @@ type OpenAIConfig struct {
 
 // ClassifierConfig contains classification service settings
 type ClassifierConfig struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
+	Host          string  `toml:"host"`
+	Port          int     `toml:"port"`
+	CacheEnabled  bool    `toml:"cache_enabled"`
+	MinConfidence float64 `toml:"min_confidence"`
 }
 
 // URL returns the full classifier service URL
@@ -111,8 +113,10 @@ func Default() *Config {
 			},
 		},
 		Classifier: ClassifierConfig{
-			Host: "http://localhost",
-			Port: 8642,
+			Host:          "http://localhost",
+			Port:          8642,
+			CacheEnabled:  true,
+			MinConfidence: 0.5,
 		},
 		Filters: FilterConfig{
 			DomainWhitelist: []string{

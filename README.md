@@ -10,11 +10,14 @@ Track your job search conversations from email. Automatically syncs, classifies,
 ## Features
 
 - **Smart Email Classification** - AI-powered filtering distinguishes real recruiter conversations from job alerts and spam
-- **Conversation Tracking** - Groups email threads, tracks who's waiting on whom
+- **Conversation Tracking** - Groups email threads by recruiter, tracks who's waiting on whom
+- **Smart Auto-Grouping** - Automatically groups emails from the same recruiter into conversations
 - **Stale Detection** - Highlights conversations that need follow-up
 - **Natural Language Queries** - Ask about your job search in plain English (works with any AI agent/CLI)
 - **MCP Integration** - Works with Claude Desktop, Cursor, and other MCP clients
 - **Privacy-First** - Stores metadata only, runs locally, your data stays yours
+- **Fast Parallel Processing** - Fetches emails (10 concurrent) and classifies (5 concurrent) in parallel
+- **Progress Tracking** - Real-time progress output during sync with emoji indicators
 - **Extensible** - Pluggable email providers (Gmail included, add your own)
 
 ## Install
@@ -75,6 +78,12 @@ what did the Anthropic recruiter say?
 ```bash
 # Get overview
 jobsearch stats
+jobsearch stats --detailed             # Detailed breakdown with charts
+
+# Sync emails
+jobsearch sync                 # Incremental (since last sync, or 30 days)
+jobsearch sync --days=60       # Fetch last 60 days
+jobsearch sync --full          # Full sync (ignore last sync time)
 
 # Conversations needing your response
 jobsearch list --status=waiting_on_me
@@ -91,6 +100,19 @@ jobsearch show stripe
 # Read full email thread (fetches content on demand)
 jobsearch thread stripe
 
+# Merge duplicate conversations
+jobsearch merge "Stripe" "stripe-2"    # By company name
+jobsearch merge abc123 def456          # By conversation ID
+
+# Archive/unarchive conversations
+jobsearch archive "Stripe"             # Hide from default list
+jobsearch unarchive "Stripe"           # Show in default list again
+jobsearch list --include-archived      # Show all including archived
+
+# Export data
+jobsearch export --format=csv > jobs.csv    # Export to CSV
+jobsearch export --format=json > jobs.json  # Export to JSON
+
 # Recent activity
 jobsearch list --since=7d
 
@@ -100,6 +122,25 @@ jobsearch search "onsite interview"
 
 ### Example output
 
+**Sync with progress:**
+```
+Syncing emails (last 60 days)...
+📋 Listing emails: 158 found
+📥 Downloading: 158/158 emails (100%)
+🔍 Filtering: 158 emails
+🤖 Classifying with LLM: 25/25 (100%)
+💾 Processing: 21/21 emails (100%)
+🔄 Updating conversation statuses...
+
+Sync complete:
+  Emails fetched:        158
+  Job-related:           3
+  Classified by LLM:     25
+  New conversations:     0
+  Updated conversations: 21
+```
+
+**Stats overview:**
 ```
 Job Search Overview
 ━━━━━━━━━━━━━━━━━━━
@@ -119,6 +160,15 @@ Stripe - Sarah Chen (sarah@stripe.com)
 Anthropic - Mike Johnson (mike@anthropic.com)
   Last contact: 1 day ago
   Status: Waiting on me
+```
+
+**Merge conversations:**
+```
+Merged conversations:
+  From: stripe-2 (abc123)
+  Into: Stripe (def456)
+  Emails moved: 3
+  New total emails: 8
 ```
 
 ## Email Providers
@@ -178,11 +228,13 @@ Add to your MCP client config:
 
 | Tool | Description |
 |------|-------------|
-| `list_conversations` | List conversations with filters |
+| `list_conversations` | List conversations with filters (supports `include_archived`) |
 | `get_conversation` | Get details of a specific conversation |
 | `get_pending_actions` | Conversations needing your response |
 | `search_conversations` | Search across all conversations |
-| `get_stats` | Job search statistics |
+| `get_stats` | Job search statistics (supports `detailed` flag) |
+| `merge_conversations` | Merge two conversations into one |
+| `archive_conversation` | Archive/unarchive a conversation |
 
 ### MCP Resources
 
@@ -198,14 +250,19 @@ Add to your MCP client config:
 Full config at `~/.config/jobsearch/config.toml`:
 
 ```toml
-[email]
-provider = "gmail"  # or your provider
+[gmail]
+credentials_path = "~/.config/jobsearch/credentials.json"
+token_path = "~/.config/jobsearch/token.json"
+max_results = 100  # Emails per sync (max 5000)
 
 [database]
 path = "~/.local/share/jobsearch/jobsearch.db"
 
 [classifier]
+host = "http://localhost"
 port = 8642
+cache_enabled = true     # Cache classifications to reduce LLM calls
+min_confidence = 0.5     # Minimum confidence threshold
 
 [llm]
 primary = "ollama"      # Local-first
@@ -215,17 +272,39 @@ fallback = "openai"     # Cloud fallback
 model = "llama3.2:1b"
 host = "http://localhost:11434"
 
+[llm.openai]
+model = "gpt-4o-mini"
+# API key read from OPENAI_API_KEY env var
+
 [filters]
-domain_whitelist = ["greenhouse.io", "lever.co", "ashbyhq.com"]
-domain_blacklist = ["noreply@linkedin.com"]
-subject_blacklist = ["job alert", "weekly digest"]
+# Layer 1: Always include emails from these domains
+domain_whitelist = ["greenhouse.io", "lever.co", "ashbyhq.com", "smartrecruiters.com", "workday.com"]
+# Layer 2: Always exclude
+domain_blacklist = ["noreply@linkedin.com", "mailchimp.com", "sendgrid.net"]
+subject_blacklist = ["job alert", "weekly digest", "new jobs for you"]
+# Layer 3: Keyword scoring
+subject_keywords = ["opportunity", "role", "position", "interview", "application"]
+body_keywords = ["your background", "schedule a call", "interested in", "reaching out"]
 
 [tracking]
 stale_after_days = 7
 
 [privacy]
-store_email_body = false  # Metadata only by default
+store_email_body = false  # Metadata only by default (set true to cache email bodies)
+encryption_key_path = "~/.config/jobsearch/encryption.key"
+
+[mcp]
+enabled = true
+transport = "stdio"
 ```
+
+### Configuration Notes
+
+- **Filters are fully customizable** - Add your own domains, keywords, and patterns
+- **Email body caching** - Set `store_email_body = true` for faster thread viewing (bodies cached locally)
+- **Parallel processing** - Fetches 10 emails concurrently, classifies 5 at a time
+- **Optimized queries** - Database indexes for fast filtering and searching
+- **Privacy-first** - By default, only metadata is stored; email bodies are fetched on demand
 
 ## How It Works
 
@@ -233,6 +312,7 @@ store_email_body = false  # Metadata only by default
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │    Email     │────▶│   Filter &   │────▶│   SQLite     │
 │   Provider   │     │   Classify   │     │   Database   │
+│ (10 parallel)│     │ (5 parallel) │     │              │
 └──────────────┘     └──────────────┘     └──────────────┘
                             │
                      ┌──────┴──────┐
@@ -241,11 +321,12 @@ store_email_body = false  # Metadata only by default
                      └─────────────┘
 ```
 
-1. **Sync** - Fetches new emails from your provider
+1. **Sync** - Fetches new emails from your provider (10 concurrent connections)
 2. **Filter** - Multi-layer filtering (domains, keywords, patterns)
-3. **Classify** - LLM determines if email is job-related
-4. **Track** - Groups into conversations, computes status
-5. **Query** - CLI, MCP, or natural language access
+3. **Classify** - LLM determines if email is job-related (5 concurrent)
+4. **Group** - Smart auto-grouping by recruiter email address
+5. **Track** - Computes conversation status (waiting on me/them, stale)
+6. **Query** - CLI, MCP, or natural language access
 
 ## Development
 

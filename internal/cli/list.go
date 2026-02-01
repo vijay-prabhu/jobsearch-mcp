@@ -16,18 +16,22 @@ var listCmd = &cobra.Command{
 	Short: "List conversations",
 	Long: `List job search conversations with optional filters.
 
+By default, archived conversations are hidden. Use --include-archived to show them.
+
 Examples:
   jobsearch list                           # List all conversations
   jobsearch list --status=waiting_on_me    # List conversations needing your response
   jobsearch list --since=7d                # List conversations from last 7 days
+  jobsearch list --include-archived        # Include archived conversations
   jobsearch list -o json                   # Output as JSON`,
 	RunE: runList,
 }
 
 var (
-	listStatus string
-	listSince  string
-	listLimit  int
+	listStatus          string
+	listSince           string
+	listLimit           int
+	listIncludeArchived bool
 )
 
 func init() {
@@ -36,6 +40,7 @@ func init() {
 	listCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (waiting_on_me, waiting_on_them, stale, active, closed)")
 	listCmd.Flags().StringVar(&listSince, "since", "", "Filter by time (e.g., 7d, 2w, 1m)")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Maximum number of results")
+	listCmd.Flags().BoolVar(&listIncludeArchived, "include-archived", false, "Include archived conversations")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -56,7 +61,8 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	// Build query options
 	opts := database.ListOptions{
-		Limit: listLimit,
+		Limit:           listLimit,
+		IncludeArchived: listIncludeArchived,
 	}
 
 	if listStatus != "" {

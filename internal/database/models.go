@@ -36,6 +36,7 @@ type Conversation struct {
 	Status         ConversationStatus `json:"status"`
 	LastActivityAt time.Time          `json:"last_activity_at"`
 	EmailCount     int                `json:"email_count"`
+	Archived       bool               `json:"archived"`
 	CreatedAt      time.Time          `json:"created_at"`
 	UpdatedAt      time.Time          `json:"updated_at"`
 }
@@ -131,12 +132,13 @@ type CompanyGroup struct {
 
 // ListOptions contains options for listing conversations
 type ListOptions struct {
-	Status    *ConversationStatus
-	Direction *Direction
-	Since     *time.Time
-	Company   *string
-	Limit     int
-	Offset    int
+	Status          *ConversationStatus
+	Direction       *Direction
+	Since           *time.Time
+	Company         *string
+	IncludeArchived bool // If false (default), excludes archived conversations
+	Limit           int
+	Offset          int
 }
 
 // NullString is a helper to convert *string to sql.NullString

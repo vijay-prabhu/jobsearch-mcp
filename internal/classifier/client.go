@@ -3,6 +3,8 @@ package classifier
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,10 +20,23 @@ type ProgressCallback func(current, total int)
 // concurrentClassifications is the number of parallel LLM classification calls
 const concurrentClassifications = 5
 
+// cacheExpiry is how long cached classifications are valid
+const cacheExpiry = 24 * time.Hour
+
+// cacheEntry holds a cached classification result
+type cacheEntry struct {
+	response  *ClassifyResponse
+	timestamp time.Time
+}
+
 // Client is an HTTP client for the Python classification service
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL       string
+	httpClient    *http.Client
+	cache         map[string]cacheEntry
+	cacheMu       sync.RWMutex
+	cacheEnabled  bool
+	minConfidence float64 // Minimum confidence threshold
 }
 
 // ClassifyRequest is the request body for classification
@@ -58,6 +73,99 @@ func New(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second, // Long timeout for LLM inference
 		},
+		cache:         make(map[string]cacheEntry),
+		cacheEnabled:  true,
+		minConfidence: 0.5, // Default minimum confidence
+	}
+}
+
+// SetCacheEnabled enables or disables classification caching
+func (c *Client) SetCacheEnabled(enabled bool) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.cacheEnabled = enabled
+}
+
+// SetMinConfidence sets the minimum confidence threshold
+func (c *Client) SetMinConfidence(threshold float64) {
+	c.minConfidence = threshold
+}
+
+// CacheStats returns cache statistics
+type CacheStats struct {
+	Entries int `json:"entries"`
+	Enabled bool `json:"enabled"`
+}
+
+// GetCacheStats returns current cache statistics
+func (c *Client) GetCacheStats() CacheStats {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+	return CacheStats{
+		Entries: len(c.cache),
+		Enabled: c.cacheEnabled,
+	}
+}
+
+// ClearCache clears the classification cache
+func (c *Client) ClearCache() {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	c.cache = make(map[string]cacheEntry)
+}
+
+// cacheKey generates a cache key for a classification request
+func (c *Client) cacheKey(req ClassifyRequest) string {
+	// Create a hash of subject + from (body can be long, so we use just subject+from)
+	data := fmt.Sprintf("%s|%s", req.EmailSubject, req.EmailFrom)
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])
+}
+
+// getCached retrieves a cached classification if available
+func (c *Client) getCached(key string) (*ClassifyResponse, bool) {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+
+	if !c.cacheEnabled {
+		return nil, false
+	}
+
+	entry, exists := c.cache[key]
+	if !exists {
+		return nil, false
+	}
+
+	// Check expiry
+	if time.Since(entry.timestamp) > cacheExpiry {
+		return nil, false
+	}
+
+	return entry.response, true
+}
+
+// setCache stores a classification result in the cache
+func (c *Client) setCache(key string, response *ClassifyResponse) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	if !c.cacheEnabled {
+		return
+	}
+
+	c.cache[key] = cacheEntry{
+		response:  response,
+		timestamp: time.Now(),
+	}
+
+	// Prune expired entries if cache is getting large
+	if len(c.cache) > 1000 {
+		now := time.Now()
+		for k, v := range c.cache {
+			if now.Sub(v.timestamp) > cacheExpiry {
+				delete(c.cache, k)
+			}
+		}
 	}
 }
 
@@ -108,8 +216,14 @@ func (c *Client) EnsureRunning(ctx context.Context) error {
 	)
 }
 
-// Classify sends an email for classification
+// Classify sends an email for classification (with caching)
 func (c *Client) Classify(ctx context.Context, req ClassifyRequest) (*ClassifyResponse, error) {
+	// Check cache first
+	cacheKey := c.cacheKey(req)
+	if cached, found := c.getCached(cacheKey); found {
+		return cached, nil
+	}
+
 	// Default to ollama
 	if req.Provider == "" {
 		req.Provider = "ollama"
@@ -141,6 +255,9 @@ func (c *Client) Classify(ctx context.Context, req ClassifyRequest) (*ClassifyRe
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+
+	// Cache the result
+	c.setCache(cacheKey, &result)
 
 	return &result, nil
 }
