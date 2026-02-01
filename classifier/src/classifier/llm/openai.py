@@ -215,12 +215,27 @@ class OpenAIProvider(LLMProvider):
         try:
             data = json.loads(content)
 
-            # Handle both array and object with "results" key
+            # Handle dict wrapper like {"results": [...]} or {"classifications": [...]}
             if isinstance(data, dict):
-                data = data.get("results", data.get("emails", []))
+                for key in ["results", "classifications", "emails", "items"]:
+                    if key in data and isinstance(data[key], list):
+                        data = data[key]
+                        break
+                else:
+                    # If no array key found, this is probably a single result
+                    data = [data]
+
+            if not isinstance(data, list):
+                return self._fallback_batch_result(expected_count, f"Expected list, got {type(data).__name__}")
 
             results = []
             for item in data:
+                # Skip non-dict items
+                if not isinstance(item, dict):
+                    logger.warning(f"Skipping non-dict item in batch response: {type(item)}")
+                    results.append(self._fallback_result("Invalid item type"))
+                    continue
+
                 results.append(
                     ClassificationResult(
                         is_job_related=item.get("is_job_related", False),
@@ -239,7 +254,7 @@ class OpenAIProvider(LLMProvider):
 
             return BatchClassificationResult(results=results, batch_size=len(results))
 
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"Failed to parse batch response: {e}")
             return self._fallback_batch_result(expected_count, f"Parse error: {e}")
 

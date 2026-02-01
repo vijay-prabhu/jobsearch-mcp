@@ -274,21 +274,51 @@ class OllamaProvider(LLMProvider):
         try:
             content = content.strip()
 
-            # Find JSON array
-            if not content.startswith("["):
-                start = content.find("[")
-                if start != -1:
-                    content = content[start:]
+            # Try to find JSON - could be array [...] or object {...}
+            data = None
 
-            if not content.endswith("]"):
-                end = content.rfind("]")
-                if end != -1:
-                    content = content[: end + 1]
+            # First try parsing as-is
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                # Try to extract JSON array
+                if "[" in content:
+                    start = content.find("[")
+                    end = content.rfind("]")
+                    if start != -1 and end != -1 and end > start:
+                        data = json.loads(content[start : end + 1])
+                # Or try to extract JSON object
+                elif "{" in content:
+                    start = content.find("{")
+                    end = content.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        data = json.loads(content[start : end + 1])
 
-            data = json.loads(content)
+            if data is None:
+                return self._fallback_batch_result(expected_count, "No valid JSON found")
+
+            # Handle dict wrapper like {"results": [...]} or {"classifications": [...]}
+            if isinstance(data, dict):
+                # Look for an array in common keys
+                for key in ["results", "classifications", "emails", "items"]:
+                    if key in data and isinstance(data[key], list):
+                        data = data[key]
+                        break
+                else:
+                    # If no array key found, this is probably a single result
+                    data = [data]
+
+            if not isinstance(data, list):
+                return self._fallback_batch_result(expected_count, f"Expected list, got {type(data).__name__}")
 
             results = []
             for item in data:
+                # Skip non-dict items
+                if not isinstance(item, dict):
+                    logger.warning(f"Skipping non-dict item in batch response: {type(item)}")
+                    results.append(self._fallback_result("Invalid item type"))
+                    continue
+
                 results.append(
                     ClassificationResult(
                         is_job_related=item.get("is_job_related", False),
@@ -307,7 +337,7 @@ class OllamaProvider(LLMProvider):
 
             return BatchClassificationResult(results=results, batch_size=len(results))
 
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"Failed to parse batch response: {e}")
             return self._fallback_batch_result(expected_count, f"Parse error: {e}")
 
