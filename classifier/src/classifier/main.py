@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .llm import ClassificationResult, ValidationResult, get_provider
+from .llm import BatchClassificationResult, ClassificationResult, ValidationResult, get_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +33,23 @@ class ValidateRequest(BaseModel):
     email_subject: str
     email_body: str
     email_from: str
+    provider: str = "ollama"
+    model: Optional[str] = None
+    host: Optional[str] = None
+
+
+class EmailItem(BaseModel):
+    """Single email in a batch request."""
+
+    subject: str
+    body: str
+    from_address: str
+
+
+class BatchClassifyRequest(BaseModel):
+    """Request model for batch classification endpoint."""
+
+    emails: list[EmailItem]
     provider: str = "ollama"
     model: Optional[str] = None
     host: Optional[str] = None
@@ -205,15 +222,67 @@ async def validate(request: ValidateRequest):
         )
 
 
+@app.post("/classify-batch", response_model=BatchClassificationResult)
+async def classify_batch(request: BatchClassifyRequest):
+    """Classify multiple emails in a single LLM call for better performance."""
+    provider_name = request.provider
+
+    # Get or create provider
+    if provider_name in _providers:
+        provider = _providers[provider_name]
+    else:
+        try:
+            kwargs = {}
+            if request.model:
+                kwargs["model"] = request.model
+            if request.host:
+                kwargs["host"] = request.host
+            provider = get_provider(provider_name, **kwargs)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Check provider health
+    try:
+        is_healthy = await provider.health_check()
+        if not is_healthy:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Provider '{provider_name}' is not available",
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Provider health check failed: {e}",
+        )
+
+    # Convert request emails to dict format
+    emails = [
+        {"subject": e.subject, "body": e.body, "from_address": e.from_address}
+        for e in request.emails
+    ]
+
+    # Classify the batch
+    try:
+        result = await provider.classify_batch(emails)
+        return result
+    except Exception as e:
+        logger.error(f"Batch classification failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch classification failed: {e}",
+        )
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
     return {
         "name": "JobSearch Classifier",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "endpoints": {
             "/health": "Health check",
             "/classify": "Email classification (POST)",
+            "/classify-batch": "Batch email classification (POST)",
             "/validate": "Email validation with multi-signal analysis (POST)",
         },
     }

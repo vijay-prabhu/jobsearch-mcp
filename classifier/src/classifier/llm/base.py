@@ -32,6 +32,13 @@ class ValidationResult(BaseModel):
     reasoning: Optional[str] = None
 
 
+class BatchClassificationResult(BaseModel):
+    """Result of batch email classification."""
+
+    results: list[ClassificationResult]
+    batch_size: int = 0
+
+
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
@@ -53,6 +60,14 @@ class LLMProvider(ABC):
         from_address: str,
     ) -> ValidationResult:
         """Validate classification with structured multi-signal questions."""
+        pass
+
+    @abstractmethod
+    async def classify_batch(
+        self,
+        emails: list[dict],
+    ) -> BatchClassificationResult:
+        """Classify multiple emails in a single LLM call."""
         pass
 
     @abstractmethod

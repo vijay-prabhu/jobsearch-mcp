@@ -70,6 +70,51 @@ Be precise - only extract information that is explicitly mentioned.
 
 JSON response:"""
 
+BATCH_CLASSIFICATION_PROMPT = """Analyze these {count} emails and determine if each is job-related.
+
+{emails}
+
+For EACH email, respond with a JSON array containing one object per email in order:
+[
+  {{
+    "index": 0,
+    "is_job_related": true/false,
+    "confidence": 0.0-1.0,
+    "company": "company name or null",
+    "position": "job title or null",
+    "recruiter_name": "name or null",
+    "classification": "recruiter_outreach|application_confirmation|interview_request|rejection|offer|follow_up|other",
+    "reasoning": "brief explanation"
+  }},
+  ...
+]
+
+Classification guidelines:
+- recruiter_outreach: Initial contact from a recruiter about an opportunity
+- application_confirmation: Automated confirmation that application was received
+- interview_request: Request to schedule an interview or call
+- rejection: Notification that you were not selected
+- offer: Job offer or compensation discussion
+- follow_up: Continued conversation in an existing thread
+- other: Job-related but doesn't fit above categories
+
+EXCLUDE (is_job_related=false):
+- Job alert digests or "new jobs for you" emails
+- LinkedIn notifications (connection requests, who viewed profile)
+- Newsletter or marketing emails
+- Recruiter spam (mass outreach with no specific role)
+- Promotional emails from job boards
+
+INCLUDE (is_job_related=true):
+- Direct recruiter outreach with specific role/company
+- Application confirmations
+- Interview scheduling
+- Rejection/offer letters
+
+Be conservative - when uncertain, set is_job_related to false.
+
+JSON array response:"""
+
 VALIDATION_PROMPT = """You are validating whether an email is genuinely job-search related.
 
 Email Details:

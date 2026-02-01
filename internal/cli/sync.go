@@ -16,8 +16,10 @@ import (
 )
 
 var (
-	syncDays int
-	syncFull bool
+	syncDays       int
+	syncFull       bool
+	syncNoClassify bool
+	syncBackground bool
 )
 
 var syncCmd = &cobra.Command{
@@ -31,7 +33,9 @@ On first run, it will open a browser for Google authentication.
 Examples:
   jobsearch sync              # Incremental sync (since last sync, or 30 days)
   jobsearch sync --days=60    # Fetch last 60 days
-  jobsearch sync --full       # Full sync (ignore last sync time)`,
+  jobsearch sync --full       # Full sync (ignore last sync time)
+  jobsearch sync --no-classify # Skip LLM classification (faster, domain-filter only)
+  jobsearch sync --background  # Quick sync with background classification`,
 	RunE: runSync,
 }
 
@@ -39,6 +43,8 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 	syncCmd.Flags().IntVar(&syncDays, "days", 0, "Number of days to fetch (default: 30, or since last sync)")
 	syncCmd.Flags().BoolVar(&syncFull, "full", false, "Ignore last sync time and fetch from scratch")
+	syncCmd.Flags().BoolVar(&syncNoClassify, "no-classify", false, "Skip LLM classification (faster, uses domain filtering only)")
+	syncCmd.Flags().BoolVar(&syncBackground, "background", false, "Quick sync: show results immediately, classify in background")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -82,14 +88,19 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	// Initialize classifier client (optional)
 	var classifierClient *classifier.Client
-	classifierURL := cfg.ClassifierURL()
-	classifierClient = classifier.New(classifierURL)
-
-	if classifierClient.IsRunning(ctx) {
-		fmt.Printf("Classification service: connected (%s)\n", classifierURL)
+	if syncNoClassify {
+		fmt.Println("Classification service: skipped (--no-classify flag)")
 	} else {
-		fmt.Println("Classification service: not running (skipping LLM classification)")
-		classifierClient = nil
+		classifierURL := cfg.ClassifierURL()
+		classifierClient = classifier.New(classifierURL)
+
+		if classifierClient.IsRunning(ctx) {
+			fmt.Printf("Classification service: connected (%s)\n", classifierURL)
+		} else {
+			fmt.Println("Classification service: not running (using domain filtering only)")
+			fmt.Println("  Tip: Start classifier with 'make serve-classifier' for better accuracy")
+			classifierClient = nil
+		}
 	}
 
 	// Create tracker and run sync
@@ -97,8 +108,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	// Build sync options
 	syncOpts := tracker.SyncOptions{
-		Days:     syncDays,
-		FullSync: syncFull,
+		Days:               syncDays,
+		FullSync:           syncFull,
+		SkipClassification: syncNoClassify,
+		BackgroundClassify: syncBackground,
 	}
 
 	fmt.Println()
@@ -154,6 +167,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 				eta = fmt.Sprintf(" (ETA: %s)", FormatETA(etaDur))
 			}
 			msg = fmt.Sprintf("🤖 Classifying with LLM: %d/%d (%d%%)%s", p.Current, p.Total, pct, eta)
+		case tracker.PhaseValidating:
+			pct := p.Percentage()
+			if etaDur := p.ETA(); etaDur > 0 {
+				eta = fmt.Sprintf(" (ETA: %s)", FormatETA(etaDur))
+			}
+			msg = fmt.Sprintf("🔬 Validating uncertain: %d/%d (%d%%)%s", p.Current, p.Total, pct, eta)
 		case tracker.PhaseProcessing:
 			pct := p.Percentage()
 			if etaDur := p.ETA(); etaDur > 0 {
@@ -172,9 +191,14 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 		if terminal.IsTerminal {
 			fmt.Print(msg)
+			terminal.Flush()
 		} else {
-			// For non-terminals, only print when phase changes
-			if p.Phase != lastPhase {
+			// For non-terminals, print on phase change or every 10 items for long phases
+			shouldPrint := p.Phase != lastPhase
+			if p.Phase == tracker.PhaseClassifying || p.Phase == tracker.PhaseValidating {
+				shouldPrint = shouldPrint || p.Current%10 == 0 || p.Current == p.Total
+			}
+			if shouldPrint {
 				fmt.Println(msg)
 			}
 		}
@@ -198,8 +222,17 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if result.EmailsClassified > 0 {
 		fmt.Printf("  Classified by LLM:     %d\n", result.EmailsClassified)
 	}
+	if result.EmailsPendingClassify > 0 {
+		fmt.Printf("  Pending classification: %d (run sync again to classify)\n", result.EmailsPendingClassify)
+	}
 	fmt.Printf("  New conversations:     %d\n", result.ConversationsNew)
 	fmt.Printf("  Updated conversations: %d\n", result.ConversationsUpdated)
+
+	if result.ClassificationSkipped {
+		fmt.Println()
+		fmt.Println("  Note: LLM classification was skipped for faster sync.")
+		fmt.Println("  Run 'jobsearch sync' (without --no-classify or --background) to classify pending emails.")
+	}
 
 	if len(result.Errors) > 0 {
 		fmt.Println()

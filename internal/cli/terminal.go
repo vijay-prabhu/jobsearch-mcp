@@ -47,6 +47,11 @@ func (t *Terminal) ClearLine() {
 	}
 }
 
+// Flush ensures output is written immediately
+func (t *Terminal) Flush() {
+	os.Stdout.Sync()
+}
+
 // Spinner returns the next spinner frame
 func (t *Terminal) Spinner() string {
 	if !t.IsTerminal {
@@ -97,6 +102,8 @@ func PhaseColor(phase string) string {
 	case "filtering":
 		return ColorYellow
 	case "classifying":
+		return ColorPurple
+	case "validating":
 		return ColorPurple
 	case "processing":
 		return ColorGreen

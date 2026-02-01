@@ -17,7 +17,7 @@ import (
 
 // Confidence thresholds for conditional validation
 const (
-	confidenceHighThreshold   = 0.7 // Above this: skip validation
+	confidenceHighThreshold   = 0.8 // Above this: skip validation
 	confidenceMediumThreshold = 0.5 // Between medium and high: run validation
 )
 
@@ -53,19 +53,23 @@ func New(db *database.DB, provider email.Provider, f *filter.Filter, c *classifi
 
 // SyncOptions configures the sync behavior
 type SyncOptions struct {
-	Days     int              // Number of days to fetch (0 = use default or last sync)
-	FullSync bool             // Ignore last sync time
-	Progress ProgressCallback // Optional progress callback
+	Days                 int              // Number of days to fetch (0 = use default or last sync)
+	FullSync             bool             // Ignore last sync time
+	Progress             ProgressCallback // Optional progress callback
+	BackgroundClassify   bool             // If true, skip classification and return quickly
+	SkipClassification   bool             // If true, skip LLM classification entirely
 }
 
 // SyncResult contains the results of a sync operation
 type SyncResult struct {
-	EmailsFetched        int
-	EmailsFiltered       int
-	EmailsClassified     int
-	ConversationsNew     int
-	ConversationsUpdated int
-	Errors               []error
+	EmailsFetched          int
+	EmailsFiltered         int
+	EmailsClassified       int
+	EmailsPendingClassify  int  // Emails skipped for background classification
+	ConversationsNew       int
+	ConversationsUpdated   int
+	ClassificationSkipped  bool // True if classification was skipped
+	Errors                 []error
 }
 
 // Sync fetches new emails and processes them with default options
@@ -175,23 +179,61 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 		toProcess = append(toProcess, processedEmail{FilteredEmail: fe})
 	}
 
-	// Classify uncertain emails with LLM (in parallel batches)
-	if len(uncertain) > 0 && t.classifier != nil && t.classifier.IsRunning(ctx) {
-		// Build batch request
-		requests := make([]classifier.ClassifyRequest, len(uncertain))
-		for i, e := range uncertain {
-			requests[i] = classifier.ClassifyRequest{
-				EmailSubject: e.Email.Subject,
-				EmailBody:    e.Email.Body,
-				EmailFrom:    e.Email.From.Email,
+	// Classify uncertain emails with LLM (unless skipped or background mode)
+	skipClassification := syncOpts.SkipClassification || syncOpts.BackgroundClassify
+	if len(uncertain) > 0 && t.classifier != nil && t.classifier.IsRunning(ctx) && !skipClassification {
+		// Use batch API for faster classification (5 emails per LLM call)
+		const batchSize = 5
+		var batchResults []classifier.BatchClassifyResult
+
+		report(PhaseClassifying, 0, len(uncertain), "Classifying with LLM")
+
+		for batchStart := 0; batchStart < len(uncertain); batchStart += batchSize {
+			batchEnd := batchStart + batchSize
+			if batchEnd > len(uncertain) {
+				batchEnd = len(uncertain)
+			}
+
+			// Build batch items
+			batchEmails := make([]classifier.BatchEmailItem, batchEnd-batchStart)
+			for i, e := range uncertain[batchStart:batchEnd] {
+				batchEmails[i] = classifier.BatchEmailItem{
+					Subject:     e.Email.Subject,
+					Body:        e.Email.Body,
+					FromAddress: e.Email.From.Email,
+				}
+			}
+
+			// Try batch API first
+			batchResp, err := t.classifier.ClassifyBatchAPI(ctx, batchEmails, t.config.LLM.Primary)
+			if err != nil {
+				// Fallback to individual classification
+				for i, e := range uncertain[batchStart:batchEnd] {
+					req := classifier.ClassifyRequest{
+						EmailSubject: e.Email.Subject,
+						EmailBody:    e.Email.Body,
+						EmailFrom:    e.Email.From.Email,
+					}
+					resp, classifyErr := t.classifier.ClassifyWithFallback(ctx, req, t.config.LLM.Primary, t.config.LLM.Fallback)
+					batchResults = append(batchResults, classifier.BatchClassifyResult{
+						Index:    batchStart + i,
+						Response: resp,
+						Error:    classifyErr,
+					})
+					report(PhaseClassifying, batchStart+i+1, len(uncertain), "Classifying with LLM")
+				}
+			} else {
+				// Use batch results
+				for i, resp := range batchResp.Results {
+					batchResults = append(batchResults, classifier.BatchClassifyResult{
+						Index:    batchStart + i,
+						Response: &resp,
+						Error:    nil,
+					})
+				}
+				report(PhaseClassifying, batchEnd, len(uncertain), "Classifying with LLM")
 			}
 		}
-
-		// Classify in parallel with progress reporting
-		classifyProgress := func(current, total int) {
-			report(PhaseClassifying, current, total, "Classifying with LLM")
-		}
-		batchResults := t.classifier.ClassifyBatchWithProgress(ctx, requests, t.config.LLM.Primary, t.config.LLM.Fallback, classifyProgress)
 
 		// Process results - collect emails that need validation
 		var needsValidation []struct {
@@ -295,6 +337,10 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 				}
 			}
 		}
+	} else if len(uncertain) > 0 && skipClassification {
+		// Classification skipped - mark for later
+		result.ClassificationSkipped = true
+		result.EmailsPendingClassify = len(uncertain)
 	}
 
 	// Process all included emails

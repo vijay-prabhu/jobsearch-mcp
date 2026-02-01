@@ -7,8 +7,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from ..prompts import CLASSIFICATION_PROMPT, VALIDATION_PROMPT
-from .base import ClassificationResult, LLMProvider, ValidationResult
+from ..prompts import BATCH_CLASSIFICATION_PROMPT, CLASSIFICATION_PROMPT, VALIDATION_PROMPT
+from .base import BatchClassificationResult, ClassificationResult, LLMProvider, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +167,86 @@ class OpenAIProvider(LLMProvider):
             confidence=0.0,
             reasoning=f"Validation failed: {reason}",
         )
+
+    async def classify_batch(
+        self,
+        emails: list[dict],
+    ) -> BatchClassificationResult:
+        """Classify multiple emails in a single LLM call."""
+        if not self._client:
+            return self._fallback_batch_result(len(emails), "OpenAI API key not configured")
+
+        if not emails:
+            return BatchClassificationResult(results=[], batch_size=0)
+
+        # Format emails for the prompt
+        email_texts = []
+        for i, e in enumerate(emails):
+            body = e.get("body", "")[:1500]  # Slightly more for OpenAI
+            email_texts.append(
+                f"--- Email {i} ---\n"
+                f"Subject: {e.get('subject', '')}\n"
+                f"From: {e.get('from_address', '')}\n"
+                f"Body: {body}\n"
+            )
+
+        prompt = BATCH_CLASSIFICATION_PROMPT.format(
+            count=len(emails),
+            emails="\n".join(email_texts),
+        )
+
+        try:
+            response = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+            )
+
+            content = response.choices[0].message.content
+            return self._parse_batch_response(content, len(emails))
+
+        except Exception as e:
+            logger.error(f"OpenAI batch classification failed: {e}")
+            return self._fallback_batch_result(len(emails), str(e))
+
+    def _parse_batch_response(self, content: str, expected_count: int) -> BatchClassificationResult:
+        """Parse the batch LLM response into results."""
+        try:
+            data = json.loads(content)
+
+            # Handle both array and object with "results" key
+            if isinstance(data, dict):
+                data = data.get("results", data.get("emails", []))
+
+            results = []
+            for item in data:
+                results.append(
+                    ClassificationResult(
+                        is_job_related=item.get("is_job_related", False),
+                        confidence=float(item.get("confidence", 0.0)),
+                        company=item.get("company"),
+                        position=item.get("position"),
+                        recruiter_name=item.get("recruiter_name"),
+                        classification=item.get("classification"),
+                        reasoning=item.get("reasoning"),
+                    )
+                )
+
+            # Pad with fallback results if not enough
+            while len(results) < expected_count:
+                results.append(self._fallback_result("Missing from batch response"))
+
+            return BatchClassificationResult(results=results, batch_size=len(results))
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to parse batch response: {e}")
+            return self._fallback_batch_result(expected_count, f"Parse error: {e}")
+
+    def _fallback_batch_result(self, count: int, reason: str) -> BatchClassificationResult:
+        """Return conservative fallback results for entire batch."""
+        results = [self._fallback_result(reason) for _ in range(count)]
+        return BatchClassificationResult(results=results, batch_size=count)
 
     async def close(self):
         """Close the client (no-op for OpenAI)."""

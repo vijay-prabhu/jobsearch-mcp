@@ -81,6 +81,25 @@ type ValidateResponse struct {
 	Reasoning             *string `json:"reasoning,omitempty"`
 }
 
+// BatchEmailItem is a single email in a batch request
+type BatchEmailItem struct {
+	Subject     string `json:"subject"`
+	Body        string `json:"body"`
+	FromAddress string `json:"from_address"`
+}
+
+// BatchClassifyRequest is the request body for batch classification
+type BatchClassifyRequest struct {
+	Emails   []BatchEmailItem `json:"emails"`
+	Provider string           `json:"provider,omitempty"`
+}
+
+// BatchClassifyResponse is the response from batch classification
+type BatchClassifyResponse struct {
+	Results   []ClassifyResponse `json:"results"`
+	BatchSize int                `json:"batch_size"`
+}
+
 // HealthResponse is the response from health check
 type HealthResponse struct {
 	Status          string `json:"status"`
@@ -353,6 +372,47 @@ func (c *Client) ValidateWithFallback(ctx context.Context, req ValidateRequest, 
 	}
 
 	return nil, err
+}
+
+// ClassifyBatchAPI sends multiple emails for classification in a single API call
+func (c *Client) ClassifyBatchAPI(ctx context.Context, emails []BatchEmailItem, provider string) (*BatchClassifyResponse, error) {
+	if provider == "" {
+		provider = "ollama"
+	}
+
+	req := BatchClassifyRequest{
+		Emails:   emails,
+		Provider: provider,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/classify-batch", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("batch classification request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("batch classification failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result BatchClassifyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
 }
 
 // BatchClassifyResult holds the result for a single email in a batch
