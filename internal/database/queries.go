@@ -324,7 +324,7 @@ func (db *DB) Search(ctx context.Context, query string) ([]Conversation, error) 
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT DISTINCT c.id, c.company, c.position, c.recruiter_name, c.recruiter_email,
-		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.created_at, c.updated_at
+		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.review_suggested, c.created_at, c.updated_at
 		FROM conversations c
 		LEFT JOIN emails e ON c.id = e.conversation_id
 		WHERE (LOWER(c.company) LIKE ?
@@ -398,7 +398,7 @@ func (db *DB) GetConversationByThreadID(ctx context.Context, threadID string) (*
 
 	err := db.QueryRowContext(ctx, `
 		SELECT c.id, c.company, c.position, c.recruiter_name, c.recruiter_email,
-		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.created_at, c.updated_at
+		       c.direction, c.status, c.last_activity_at, c.email_count, c.archived, c.review_suggested, c.created_at, c.updated_at
 		FROM conversations c
 		INNER JOIN emails e ON c.id = e.conversation_id
 		WHERE e.thread_id = ?
