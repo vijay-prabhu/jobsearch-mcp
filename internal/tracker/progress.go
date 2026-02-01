@@ -6,12 +6,12 @@ import "time"
 type ProgressPhase string
 
 const (
-	PhaseListingEmails   ProgressPhase = "listing"
-	PhaseFetchingEmails  ProgressPhase = "fetching"
-	PhaseFiltering       ProgressPhase = "filtering"
-	PhaseClassifying     ProgressPhase = "classifying"
-	PhaseProcessing      ProgressPhase = "processing"
-	PhaseUpdatingStatus  ProgressPhase = "updating_status"
+	PhaseListingEmails  ProgressPhase = "listing"
+	PhaseFetchingEmails ProgressPhase = "fetching"
+	PhaseFiltering      ProgressPhase = "filtering"
+	PhaseClassifying    ProgressPhase = "classifying"
+	PhaseProcessing     ProgressPhase = "processing"
+	PhaseUpdatingStatus ProgressPhase = "updating_status"
 )
 
 // Progress represents the current sync progress

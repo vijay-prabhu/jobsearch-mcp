@@ -196,10 +196,6 @@ func (s *Server) handleSearchConversations(ctx context.Context, params json.RawM
 	return results, nil
 }
 
-type getStatsParams struct {
-	SinceDays int `json:"since_days"`
-}
-
 type getStatsParamsExtended struct {
 	SinceDays int  `json:"since_days"`
 	Detailed  bool `json:"detailed"`
@@ -248,11 +244,11 @@ func (s *Server) handleGetStats(ctx context.Context, params json.RawMessage) (in
 	}
 
 	return map[string]interface{}{
-		"basic":                     stats,
-		"total_inbound":             inbound,
-		"conversations_with_reply":  withReply,
-		"response_rate_percent":     responseRate,
-		"total_active_companies":    len(convs),
+		"basic":                    stats,
+		"total_inbound":            inbound,
+		"conversations_with_reply": withReply,
+		"response_rate_percent":    responseRate,
+		"total_active_companies":   len(convs),
 	}, nil
 }
 
@@ -296,11 +292,11 @@ func (s *Server) handleMergeConversations(ctx context.Context, params json.RawMe
 	}
 
 	return map[string]interface{}{
-		"merged":        true,
-		"target":        targetConv.Company,
-		"source":        sourceConv.Company,
-		"emails_moved":  result.EmailsMoved,
-		"total_emails":  result.TotalEmails,
+		"merged":       true,
+		"target":       targetConv.Company,
+		"source":       sourceConv.Company,
+		"emails_moved": result.EmailsMoved,
+		"total_emails": result.TotalEmails,
 	}, nil
 }
 

@@ -93,7 +93,7 @@ func (c *Client) SetMinConfidence(threshold float64) {
 
 // CacheStats returns cache statistics
 type CacheStats struct {
-	Entries int `json:"entries"`
+	Entries int  `json:"entries"`
 	Enabled bool `json:"enabled"`
 }
 

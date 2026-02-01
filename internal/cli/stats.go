@@ -91,11 +91,11 @@ func runStats(cmd *cobra.Command, args []string) error {
 
 // DetailedStats contains extended statistics
 type DetailedStats struct {
-	Basic           *database.Stats           `json:"basic"`
-	ByStatus        map[string]int            `json:"by_status"`
-	ByCompany       []CompanyStat             `json:"by_company"`
-	RecentActivity  []ActivityStat            `json:"recent_activity"`
-	ResponseMetrics ResponseMetrics           `json:"response_metrics"`
+	Basic           *database.Stats `json:"basic"`
+	ByStatus        map[string]int  `json:"by_status"`
+	ByCompany       []CompanyStat   `json:"by_company"`
+	RecentActivity  []ActivityStat  `json:"recent_activity"`
+	ResponseMetrics ResponseMetrics `json:"response_metrics"`
 }
 
 // CompanyStat shows statistics per company
@@ -194,9 +194,9 @@ func getDetailedStats(ctx context.Context, db *database.DB, since *time.Time) (*
 	}
 
 	return &DetailedStats{
-		Basic:     basic,
-		ByStatus:  byStatus,
-		ByCompany: byCompany,
+		Basic:          basic,
+		ByStatus:       byStatus,
+		ByCompany:      byCompany,
 		RecentActivity: recentActivity,
 		ResponseMetrics: ResponseMetrics{
 			ConversationsWithReply: withReply,

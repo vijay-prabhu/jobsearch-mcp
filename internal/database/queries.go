@@ -668,7 +668,7 @@ func (db *DB) MergeConversations(ctx context.Context, targetID, sourceID string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Count emails to be moved
 	var emailsMoved int
