@@ -35,6 +35,18 @@ Add `~/bin` to your PATH if not already:
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 ```
 
+### Auto-rebuild Options
+
+To avoid manually rebuilding after `git pull`:
+
+```bash
+# Option 1: Wrapper script (rebuilds automatically when source changes)
+make install-wrapper
+
+# Option 2: Git hook (rebuilds after every git pull)
+make install-hooks
+```
+
 ### As a Skill (Claude Code, Cursor, etc.)
 
 The included `SKILL.md` provides natural language command mappings that AI agents can use. For Claude Code:

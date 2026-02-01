@@ -46,3 +46,6 @@ Thumbs.db
 coverage.out
 htmlcov/
 .coverage
+
+# Local build cache for wrapper
+.bin/
