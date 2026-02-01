@@ -6,22 +6,41 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/email"
 )
 
-// checkDomainWhitelist checks if the email is from a whitelisted domain
+// getRelevantAddress returns the address to check for filtering.
+// For inbound emails, we check the From address.
+// For outbound emails (sent by the user), we check the first To address.
+func (f *Filter) getRelevantAddress(e *email.Email) (domain, fullEmail string) {
+	// Check if this is an outbound email (sent by the user)
+	if f.userEmail != "" && strings.EqualFold(e.From.Email, f.userEmail) {
+		// Outbound: check the recipient (who we're emailing)
+		if len(e.To) > 0 {
+			return e.To[0].Domain(), strings.ToLower(e.To[0].Email)
+		}
+		// No recipients - can't determine domain
+		return "", ""
+	}
+	// Inbound: check the sender
+	return e.Domain(), strings.ToLower(e.From.Email)
+}
+
+// checkDomainWhitelist checks if the email is from/to a whitelisted domain
 func (f *Filter) checkDomainWhitelist(e *email.Email) *Result {
-	domain := e.Domain()
-	fromEmail := strings.ToLower(e.From.Email)
+	domain, relevantEmail := f.getRelevantAddress(e)
+	if domain == "" {
+		return nil
+	}
 
 	// Check config + learned whitelist
 	for _, pattern := range f.GetAllDomainWhitelist() {
 		pattern = strings.ToLower(pattern)
 
 		// Check if pattern matches domain or is contained in email
-		if matchesDomainPattern(domain, fromEmail, pattern) {
+		if matchesDomainPattern(domain, relevantEmail, pattern) {
 			return &Result{
 				Include:    true,
 				Layer:      LayerWhitelist,
 				Confidence: 1.0,
-				Reason:     "From whitelisted domain: " + pattern,
+				Reason:     "Whitelisted domain: " + pattern,
 			}
 		}
 	}
@@ -29,22 +48,24 @@ func (f *Filter) checkDomainWhitelist(e *email.Email) *Result {
 	return nil
 }
 
-// checkDomainBlacklist checks if the email is from a blacklisted domain/sender
+// checkDomainBlacklist checks if the email is from/to a blacklisted domain/sender
 func (f *Filter) checkDomainBlacklist(e *email.Email) *Result {
-	domain := e.Domain()
-	fromEmail := strings.ToLower(e.From.Email)
+	domain, relevantEmail := f.getRelevantAddress(e)
+	if domain == "" {
+		return nil
+	}
 
 	// Check config + learned blacklist
 	for _, pattern := range f.GetAllDomainBlacklist() {
 		pattern = strings.ToLower(pattern)
 
 		// Check if pattern matches domain or is contained in email
-		if matchesDomainPattern(domain, fromEmail, pattern) {
+		if matchesDomainPattern(domain, relevantEmail, pattern) {
 			return &Result{
 				Include:    false,
 				Layer:      LayerBlacklist,
 				Confidence: 1.0,
-				Reason:     "From blacklisted sender: " + pattern,
+				Reason:     "Blacklisted sender: " + pattern,
 			}
 		}
 	}

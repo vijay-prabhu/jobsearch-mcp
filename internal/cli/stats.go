@@ -27,14 +27,16 @@ Examples:
 }
 
 var (
-	statsSince    string
-	statsDetailed bool
+	statsSince          string
+	statsDetailed       bool
+	statsClassification bool
 )
 
 func init() {
 	rootCmd.AddCommand(statsCmd)
 	statsCmd.Flags().StringVar(&statsSince, "since", "", "Time period (e.g., 7d, 2w, 1m)")
 	statsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show detailed statistics with breakdowns")
+	statsCmd.Flags().BoolVar(&statsClassification, "classification", false, "Show classification quality metrics")
 }
 
 func runStats(cmd *cobra.Command, args []string) error {
@@ -70,8 +72,31 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get stats: %w", err)
 	}
 
-	if !statsDetailed {
+	if !statsDetailed && !statsClassification {
 		return output.Output(outputFmt, stats)
+	}
+
+	// Handle classification-only mode
+	if statsClassification && !statsDetailed {
+		classificationMetrics, err := getClassificationMetrics(ctx, db, since)
+		if err != nil {
+			return fmt.Errorf("failed to get classification metrics: %w", err)
+		}
+
+		if outputFmt == "json" {
+			return output.JSON(classificationMetrics)
+		}
+
+		// Print basic stats first
+		fmt.Println("Job Search Statistics")
+		fmt.Println(strings.Repeat("=", 50))
+		fmt.Println()
+		fmt.Printf("  Total Conversations: %d\n", stats.TotalConversations)
+		fmt.Printf("  Total Emails:        %d\n", stats.TotalEmails)
+		fmt.Println()
+
+		printClassificationMetrics(classificationMetrics)
+		return nil
 	}
 
 	// Get detailed stats
@@ -86,6 +111,16 @@ func runStats(cmd *cobra.Command, args []string) error {
 
 	// Print detailed text output
 	printDetailedStats(detailed)
+
+	// Print classification metrics if requested
+	if statsClassification {
+		classificationMetrics, err := getClassificationMetrics(ctx, db, since)
+		if err != nil {
+			return fmt.Errorf("failed to get classification metrics: %w", err)
+		}
+		printClassificationMetrics(classificationMetrics)
+	}
+
 	return nil
 }
 
@@ -286,4 +321,107 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-1] + "…"
+}
+
+// ClassificationMetricsReport contains classification quality metrics
+type ClassificationMetricsReport struct {
+	DailyMetrics       []database.ClassificationMetrics `json:"daily_metrics"`
+	TotalProcessed     int                              `json:"total_processed"`
+	TotalAutoIncluded  int                              `json:"total_auto_included"`
+	TotalValidated     int                              `json:"total_validated"`
+	TotalExcluded      int                              `json:"total_excluded"`
+	TotalFalsePositive int                              `json:"total_false_positives"`
+	AccuracyRate       float64                          `json:"accuracy_rate_percent"`
+	LearnedDomains     []string                         `json:"learned_domains"`
+}
+
+func getClassificationMetrics(ctx context.Context, db *database.DB, since *time.Time) (*ClassificationMetricsReport, error) {
+	// Default to last 30 days if no since provided
+	sinceTime := time.Now().AddDate(0, 0, -30)
+	if since != nil {
+		sinceTime = *since
+	}
+
+	// Get daily metrics
+	dailyMetrics, err := db.GetClassificationMetrics(ctx, sinceTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate totals
+	report := &ClassificationMetricsReport{
+		DailyMetrics: dailyMetrics,
+	}
+
+	for _, m := range dailyMetrics {
+		report.TotalProcessed += m.EmailsProcessed
+		report.TotalAutoIncluded += m.AutoIncluded
+		report.TotalValidated += m.Validated
+		report.TotalExcluded += m.Excluded
+		report.TotalFalsePositive += m.FalsePositivesMarked
+	}
+
+	// Calculate accuracy rate (validated / (validated + false_positives))
+	totalClassified := report.TotalValidated + report.TotalFalsePositive
+	if totalClassified > 0 {
+		report.AccuracyRate = float64(report.TotalValidated) / float64(totalClassified) * 100
+	}
+
+	// Get learned domains
+	learnedDomains, err := db.GetLearnedBlacklist(ctx)
+	if err != nil {
+		return nil, err
+	}
+	report.LearnedDomains = learnedDomains
+
+	return report, nil
+}
+
+func printClassificationMetrics(r *ClassificationMetricsReport) {
+	fmt.Println()
+	fmt.Println("Classification Quality Metrics")
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println()
+
+	// Summary
+	fmt.Println("Summary")
+	fmt.Println(strings.Repeat("-", 30))
+	fmt.Printf("  Emails Processed:    %d\n", r.TotalProcessed)
+	fmt.Printf("  Auto-included:       %d\n", r.TotalAutoIncluded)
+	fmt.Printf("  Validated:           %d\n", r.TotalValidated)
+	fmt.Printf("  Excluded:            %d\n", r.TotalExcluded)
+	fmt.Printf("  False Positives:     %d\n", r.TotalFalsePositive)
+	if r.TotalValidated+r.TotalFalsePositive > 0 {
+		fmt.Printf("  Accuracy Rate:       %.1f%%\n", r.AccuracyRate)
+	}
+	fmt.Println()
+
+	// Learned domains
+	if len(r.LearnedDomains) > 0 {
+		fmt.Println("Learned Blocked Domains")
+		fmt.Println(strings.Repeat("-", 30))
+		for _, domain := range r.LearnedDomains {
+			fmt.Printf("  • %s\n", domain)
+		}
+		fmt.Println()
+	}
+
+	// Daily breakdown (last 7 days)
+	if len(r.DailyMetrics) > 0 {
+		fmt.Println("Recent Activity (by date)")
+		fmt.Println(strings.Repeat("-", 30))
+		shown := 0
+		for _, m := range r.DailyMetrics {
+			if shown >= 7 {
+				break
+			}
+			fmt.Printf("  %s: %d processed, %d auto, %d validated, %d FP\n",
+				m.Date.Format("Jan 02"),
+				m.EmailsProcessed,
+				m.AutoIncluded,
+				m.Validated,
+				m.FalsePositivesMarked)
+			shown++
+		}
+	}
 }

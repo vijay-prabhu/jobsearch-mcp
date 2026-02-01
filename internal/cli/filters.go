@@ -130,19 +130,15 @@ func runFiltersList(cmd *cobra.Command, args []string) error {
 
 	if len(suggested) > 0 {
 		fmt.Println("AI SUGGESTIONS (pending approval):")
-		fmt.Fprintln(w, "ID\tTYPE\tVALUE\tCONFIDENCE")
-		fmt.Fprintln(w, "──\t────\t─────\t──────────")
+		fmt.Fprintln(w, "ID\tTYPE\tVALUE\tFP COUNT")
+		fmt.Fprintln(w, "──\t────\t─────\t────────")
 		for _, f := range suggested {
-			conf := "-"
-			if f.Confidence != nil {
-				conf = fmt.Sprintf("%.0f%%", *f.Confidence*100)
-			}
 			// Show short ID for easier use
 			shortID := f.ID
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", shortID, f.FilterType, f.Value, conf)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", shortID, f.FilterType, f.Value, f.FalsePositiveCount)
 		}
 		w.Flush()
 		fmt.Println()

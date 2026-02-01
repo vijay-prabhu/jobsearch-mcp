@@ -126,14 +126,65 @@ func Default() *Config {
 				"smartrecruiters.com",
 			},
 			DomainBlacklist: []string{
-				"noreply@linkedin.com",
+				// Email service providers
 				"mailchimp.com",
 				"sendgrid.net",
+				// LinkedIn non-recruiter emails
+				"noreply@linkedin.com",
+				"billing-noreply@linkedin.com",
+				"editors-noreply@linkedin.com",
+				"em.linkedin.com",
+				// Retail & promotions
+				"walmart.ca",
+				"e.walmart.ca",
+				"timhortons.ca",
+				"promo.timhortons.ca",
+				// Entertainment
+				"cineplex.com",
+				"campaigns.cineplex.com",
+				"spotify.com",
+				// Travel & hospitality
+				"qatarairways.com",
+				"qr.qatarairways.com",
+				"marriott.com",
+				"email-marriott.com",
+				"goindigo.in",
+				"marketing.goindigo.in",
+				// Telecom & utilities
+				"telus.com",
+				"email.telus.com",
+				"shell.com",
+				"petro-canada.ca",
+				// Finance (non-job)
+				"wealthsimple.com",
+				"m.wealthsimple.com",
+				"e-news.wealthsimple.com",
+				"rbc.com",
+				"newsletters.rbc.com",
+				// Apps & services
+				"truecaller.com",
+				"updates.truecaller.com",
+				"alltrails.com",
+				"uber.com",
+				"ubereats@uber.com",
+				"expressvpn.com",
+				// Newsletters & content
+				"unilever.ca",
+				"enews.unilever.ca",
+				"bowldigest.com",
+				"thegistsports.com",
+				"beehiiv.com",
+				"supabase.com",
+				// Google non-careers
+				"googleplay-noreply@google.com",
 			},
 			SubjectBlacklist: []string{
 				"job alert",
 				"new jobs for you",
 				"weekly digest",
+				"your weekly",
+				"daily digest",
+				"newsletter",
 			},
 			SubjectKeywords: []string{
 				"opportunity",

@@ -43,6 +43,7 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 | List with archived | `jobsearch list --include-archived -o json` |
 | Export to CSV | `jobsearch export --format=csv` |
 | Export to JSON | `jobsearch export --format=json` |
+| **Mark as spam** | `jobsearch mark-spam "<company>"` |
 
 ## Instructions
 
@@ -117,6 +118,12 @@ When user asks about their job search:
 - "export as CSV" → `jobsearch export --format=csv`
 - "export as JSON" → `jobsearch export --format=json`
 - "download my conversations" → `jobsearch export --format=csv`
+
+### Mark as Spam (False Positives)
+- "this isn't job related" → `jobsearch mark-spam "<company>"`
+- "mark Walmart as spam" → `jobsearch mark-spam "Walmart"`
+- "this is not a recruiter" → `jobsearch mark-spam "<company>"`
+- "remove this false positive" → `jobsearch mark-spam "<company>"`
 
 ## Output Formatting
 

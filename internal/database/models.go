@@ -27,18 +27,19 @@ const (
 
 // Conversation represents a job search conversation thread
 type Conversation struct {
-	ID             string             `json:"id"`
-	Company        string             `json:"company"`
-	Position       *string            `json:"position,omitempty"`
-	RecruiterName  *string            `json:"recruiter_name,omitempty"`
-	RecruiterEmail *string            `json:"recruiter_email,omitempty"`
-	Direction      Direction          `json:"direction"`
-	Status         ConversationStatus `json:"status"`
-	LastActivityAt time.Time          `json:"last_activity_at"`
-	EmailCount     int                `json:"email_count"`
-	Archived       bool               `json:"archived"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
+	ID              string             `json:"id"`
+	Company         string             `json:"company"`
+	Position        *string            `json:"position,omitempty"`
+	RecruiterName   *string            `json:"recruiter_name,omitempty"`
+	RecruiterEmail  *string            `json:"recruiter_email,omitempty"`
+	Direction       Direction          `json:"direction"`
+	Status          ConversationStatus `json:"status"`
+	LastActivityAt  time.Time          `json:"last_activity_at"`
+	EmailCount      int                `json:"email_count"`
+	Archived        bool               `json:"archived"`
+	ReviewSuggested bool               `json:"review_suggested"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
 // DaysSinceActivity returns the number of days since last activity
@@ -92,14 +93,28 @@ type SyncState struct {
 	EmailsProcessed int        `json:"emails_processed"`
 }
 
-// LearnedFilter represents a user or AI-learned filter
+// LearnedFilter represents a user or auto-learned filter entry
 type LearnedFilter struct {
-	ID         string    `json:"id"`
-	FilterType string    `json:"filter_type"`
-	Value      string    `json:"value"`
-	Source     string    `json:"source"`
-	Confidence *float64  `json:"confidence,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID                 string    `json:"id"`
+	FilterType         string    `json:"filter_type"` // domain_blacklist, domain_whitelist, subject_blacklist
+	Value              string    `json:"value"`       // The domain or pattern
+	Source             string    `json:"source"`      // user, auto
+	FalsePositiveCount int       `json:"false_positive_count"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// ClassificationMetrics tracks daily classification quality
+type ClassificationMetrics struct {
+	ID                      string    `json:"id"`
+	Date                    time.Time `json:"date"`
+	EmailsProcessed         int       `json:"emails_processed"`
+	AutoIncluded            int       `json:"auto_included"`
+	Validated               int       `json:"validated"`
+	Excluded                int       `json:"excluded"`
+	FalsePositivesMarked    int       `json:"false_positives_marked"`
+	DomainsAutoBlacklisted  int       `json:"domains_auto_blacklisted"`
+	CreatedAt               time.Time `json:"created_at"`
 }
 
 // Stats represents aggregate statistics
@@ -136,7 +151,8 @@ type ListOptions struct {
 	Direction       *Direction
 	Since           *time.Time
 	Company         *string
-	IncludeArchived bool // If false (default), excludes archived conversations
+	IncludeArchived bool  // If false (default), excludes archived conversations
+	NeedsReview     *bool // Filter by review_suggested flag
 	Limit           int
 	Offset          int
 }

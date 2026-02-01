@@ -38,11 +38,11 @@ func (db *DB) GetConversation(ctx context.Context, id string) (*Conversation, er
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, review_suggested, created_at, updated_at
 		FROM conversations WHERE id = ?
 	`, id).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -64,12 +64,12 @@ func (db *DB) GetConversationByCompany(ctx context.Context, company string) (*Co
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, review_suggested, created_at, updated_at
 		FROM conversations WHERE LOWER(company) = LOWER(?)
 		ORDER BY last_activity_at DESC LIMIT 1
 	`, company).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -113,7 +113,7 @@ func (db *DB) UpdateConversation(ctx context.Context, c *Conversation) error {
 func (db *DB) ListConversations(ctx context.Context, opts ListOptions) ([]Conversation, error) {
 	query := `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, review_suggested, created_at, updated_at
 		FROM conversations WHERE 1=1
 	`
 	args := []interface{}{}
@@ -139,6 +139,10 @@ func (db *DB) ListConversations(ctx context.Context, opts ListOptions) ([]Conver
 		query += " AND LOWER(company) LIKE LOWER(?)"
 		args = append(args, "%"+*opts.Company+"%")
 	}
+	if opts.NeedsReview != nil {
+		query += " AND review_suggested = ?"
+		args = append(args, *opts.NeedsReview)
+	}
 
 	query += " ORDER BY last_activity_at DESC"
 
@@ -162,7 +166,7 @@ func (db *DB) ListConversations(ctx context.Context, opts ListOptions) ([]Conver
 
 		if err := rows.Scan(
 			&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -342,7 +346,7 @@ func (db *DB) Search(ctx context.Context, query string) ([]Conversation, error) 
 
 		if err := rows.Scan(
 			&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+			&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -401,7 +405,7 @@ func (db *DB) GetConversationByThreadID(ctx context.Context, threadID string) (*
 		LIMIT 1
 	`, threadID).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -439,6 +443,7 @@ const (
 // FilterSource constants
 const (
 	FilterSourceUser        = "user"
+	FilterSourceAuto        = "auto"
 	FilterSourceAISuggested = "ai_suggested"
 	FilterSourceAIConfirmed = "ai_confirmed"
 )
@@ -449,26 +454,27 @@ func (db *DB) CreateLearnedFilter(ctx context.Context, f *LearnedFilter) error {
 		f.ID = uuid.New().String()
 	}
 	f.CreatedAt = time.Now()
+	f.UpdatedAt = time.Now()
 
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO learned_filters (id, filter_type, value, source, confidence, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO learned_filters (id, filter_type, value, source, false_positive_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(filter_type, value) DO UPDATE SET
 			source = excluded.source,
-			confidence = excluded.confidence
-	`, f.ID, f.FilterType, f.Value, f.Source, NullFloat64(f.Confidence), f.CreatedAt)
+			false_positive_count = excluded.false_positive_count,
+			updated_at = excluded.updated_at
+	`, f.ID, f.FilterType, f.Value, f.Source, f.FalsePositiveCount, f.CreatedAt, f.UpdatedAt)
 	return err
 }
 
 // GetLearnedFilter retrieves a learned filter by ID
 func (db *DB) GetLearnedFilter(ctx context.Context, id string) (*LearnedFilter, error) {
 	f := &LearnedFilter{}
-	var confidence sql.NullFloat64
 
 	err := db.QueryRowContext(ctx, `
-		SELECT id, filter_type, value, source, confidence, created_at
+		SELECT id, filter_type, value, source, false_positive_count, created_at, updated_at
 		FROM learned_filters WHERE id = ?
-	`, id).Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &confidence, &f.CreatedAt)
+	`, id).Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &f.FalsePositiveCount, &f.CreatedAt, &f.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -476,7 +482,6 @@ func (db *DB) GetLearnedFilter(ctx context.Context, id string) (*LearnedFilter, 
 		return nil, err
 	}
 
-	f.Confidence = Float64Ptr(confidence)
 	return f, nil
 }
 
@@ -489,7 +494,7 @@ type LearnedFilterListOptions struct {
 
 // ListLearnedFilters retrieves learned filters with optional filters
 func (db *DB) ListLearnedFilters(ctx context.Context, opts LearnedFilterListOptions) ([]LearnedFilter, error) {
-	query := `SELECT id, filter_type, value, source, confidence, created_at FROM learned_filters WHERE 1=1`
+	query := `SELECT id, filter_type, value, source, false_positive_count, created_at, updated_at FROM learned_filters WHERE 1=1`
 	args := []interface{}{}
 
 	if opts.FilterType != nil {
@@ -516,13 +521,11 @@ func (db *DB) ListLearnedFilters(ctx context.Context, opts LearnedFilterListOpti
 	var filters []LearnedFilter
 	for rows.Next() {
 		f := LearnedFilter{}
-		var confidence sql.NullFloat64
 
-		if err := rows.Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &confidence, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.FilterType, &f.Value, &f.Source, &f.FalsePositiveCount, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 
-		f.Confidence = Float64Ptr(confidence)
 		filters = append(filters, f)
 	}
 
@@ -630,14 +633,14 @@ func (db *DB) GetConversationByRecruiterEmail(ctx context.Context, email string)
 
 	err := db.QueryRowContext(ctx, `
 		SELECT id, company, position, recruiter_name, recruiter_email,
-		       direction, status, last_activity_at, email_count, archived, created_at, updated_at
+		       direction, status, last_activity_at, email_count, archived, review_suggested, created_at, updated_at
 		FROM conversations
 		WHERE LOWER(recruiter_email) = LOWER(?)
 		ORDER BY last_activity_at DESC
 		LIMIT 1
 	`, email).Scan(
 		&c.ID, &c.Company, &position, &recruiterName, &recruiterEmail,
-		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.CreatedAt, &c.UpdatedAt,
+		&c.Direction, &c.Status, &c.LastActivityAt, &c.EmailCount, &c.Archived, &c.ReviewSuggested, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -776,4 +779,152 @@ func (db *DB) UnarchiveConversation(ctx context.Context, id string) (*ArchiveRes
 		Company:        conv.Company,
 		Archived:       false,
 	}, nil
+}
+
+// MarkFalsePositive records a false positive and increments the counter for the domain
+// This is used for the domain learning feature
+func (db *DB) MarkFalsePositive(ctx context.Context, domain string) error {
+	now := time.Now()
+
+	// Try to insert or update the learned filter
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO learned_filters (id, filter_type, value, source, false_positive_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?)
+		ON CONFLICT(filter_type, value) DO UPDATE SET
+			false_positive_count = false_positive_count + 1,
+			updated_at = ?
+	`, uuid.New().String(), FilterTypeDomainBlacklist, strings.ToLower(domain), FilterSourceUser, now, now, now)
+
+	return err
+}
+
+// GetFalsePositiveCount returns the false positive count for a domain
+func (db *DB) GetFalsePositiveCount(ctx context.Context, domain string) (int, error) {
+	var count int
+	err := db.QueryRowContext(ctx, `
+		SELECT COALESCE(false_positive_count, 0)
+		FROM learned_filters
+		WHERE filter_type = ? AND LOWER(value) = LOWER(?)
+	`, FilterTypeDomainBlacklist, domain).Scan(&count)
+
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return count, err
+}
+
+// GetDomainsAboveThreshold returns domains that have been marked as false positive
+// more than the given threshold number of times
+func (db *DB) GetDomainsAboveThreshold(ctx context.Context, threshold int) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT value FROM learned_filters
+		WHERE filter_type = ? AND false_positive_count >= ?
+		ORDER BY false_positive_count DESC
+	`, FilterTypeDomainBlacklist, threshold)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+
+	return domains, rows.Err()
+}
+
+// PromoteToAutoBlacklist marks a domain as auto-blacklisted (source=auto)
+func (db *DB) PromoteToAutoBlacklist(ctx context.Context, domain string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE learned_filters
+		SET source = ?, updated_at = ?
+		WHERE filter_type = ? AND LOWER(value) = LOWER(?)
+	`, FilterSourceAuto, time.Now(), FilterTypeDomainBlacklist, domain)
+	return err
+}
+
+// GetLearnedBlacklist returns all domains in the learned blacklist
+func (db *DB) GetLearnedBlacklist(ctx context.Context) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT value FROM learned_filters
+		WHERE filter_type = ?
+		ORDER BY value
+	`, FilterTypeDomainBlacklist)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+
+	return domains, rows.Err()
+}
+
+// RecordClassificationMetrics records daily classification metrics
+func (db *DB) RecordClassificationMetrics(ctx context.Context, metrics *ClassificationMetrics) error {
+	if metrics.ID == "" {
+		metrics.ID = uuid.New().String()
+	}
+	metrics.CreatedAt = time.Now()
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO classification_metrics (
+			id, date, emails_processed, auto_included, validated, excluded,
+			false_positives_marked, domains_auto_blacklisted, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(date) DO UPDATE SET
+			emails_processed = emails_processed + excluded.emails_processed,
+			auto_included = auto_included + excluded.auto_included,
+			validated = validated + excluded.validated,
+			excluded = excluded + excluded.excluded,
+			false_positives_marked = false_positives_marked + excluded.false_positives_marked,
+			domains_auto_blacklisted = domains_auto_blacklisted + excluded.domains_auto_blacklisted
+	`, metrics.ID, metrics.Date.Format("2006-01-02"), metrics.EmailsProcessed,
+		metrics.AutoIncluded, metrics.Validated, metrics.Excluded,
+		metrics.FalsePositivesMarked, metrics.DomainsAutoBlacklisted, metrics.CreatedAt)
+
+	return err
+}
+
+// GetClassificationMetrics returns metrics for the given date range
+func (db *DB) GetClassificationMetrics(ctx context.Context, since time.Time) ([]ClassificationMetrics, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, date, emails_processed, auto_included, validated, excluded,
+		       false_positives_marked, domains_auto_blacklisted, created_at
+		FROM classification_metrics
+		WHERE date >= ?
+		ORDER BY date DESC
+	`, since.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metrics []ClassificationMetrics
+	for rows.Next() {
+		m := ClassificationMetrics{}
+		var dateStr string
+		if err := rows.Scan(
+			&m.ID, &dateStr, &m.EmailsProcessed, &m.AutoIncluded, &m.Validated, &m.Excluded,
+			&m.FalsePositivesMarked, &m.DomainsAutoBlacklisted, &m.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		m.Date, _ = time.Parse("2006-01-02", dateStr)
+		metrics = append(metrics, m)
+	}
+
+	return metrics, rows.Err()
 }

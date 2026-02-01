@@ -62,10 +62,10 @@ func (l *Learner) suggestDomain(ctx context.Context, e *email.Email, confidence 
 
 	// Create suggestion
 	f := &database.LearnedFilter{
-		FilterType: database.FilterTypeDomainWhitelist,
-		Value:      domain,
-		Source:     database.FilterSourceAISuggested,
-		Confidence: &confidence,
+		FilterType:         database.FilterTypeDomainWhitelist,
+		Value:              domain,
+		Source:             database.FilterSourceAISuggested,
+		FalsePositiveCount: 0,
 	}
 
 	return l.db.CreateLearnedFilter(ctx, f)
@@ -90,10 +90,10 @@ func (l *Learner) suggestSubjectKeywords(ctx context.Context, e *email.Email, co
 
 		// Create suggestion
 		f := &database.LearnedFilter{
-			FilterType: database.FilterTypeSubjectKeyword,
-			Value:      phrase,
-			Source:     database.FilterSourceAISuggested,
-			Confidence: &confidence,
+			FilterType:         database.FilterTypeSubjectKeyword,
+			Value:              phrase,
+			Source:             database.FilterSourceAISuggested,
+			FalsePositiveCount: 0,
 		}
 
 		if err := l.db.CreateLearnedFilter(ctx, f); err != nil {
@@ -116,12 +116,11 @@ func (l *Learner) LearnFromFeedback(ctx context.Context, e *email.Email, isFalse
 				return err
 			}
 			if !exists {
-				conf := 1.0
 				f := &database.LearnedFilter{
-					FilterType: database.FilterTypeDomainBlacklist,
-					Value:      domain,
-					Source:     database.FilterSourceUser,
-					Confidence: &conf,
+					FilterType:         database.FilterTypeDomainBlacklist,
+					Value:              domain,
+					Source:             database.FilterSourceUser,
+					FalsePositiveCount: 1,
 				}
 				if err := l.db.CreateLearnedFilter(ctx, f); err != nil {
 					return err
@@ -138,12 +137,11 @@ func (l *Learner) LearnFromFeedback(ctx context.Context, e *email.Email, isFalse
 				return err
 			}
 			if !exists {
-				conf := 1.0
 				f := &database.LearnedFilter{
-					FilterType: database.FilterTypeSubjectBlacklist,
-					Value:      phrase,
-					Source:     database.FilterSourceUser,
-					Confidence: &conf,
+					FilterType:         database.FilterTypeSubjectBlacklist,
+					Value:              phrase,
+					Source:             database.FilterSourceUser,
+					FalsePositiveCount: 1,
 				}
 				if err := l.db.CreateLearnedFilter(ctx, f); err != nil {
 					return err
@@ -158,12 +156,11 @@ func (l *Learner) LearnFromFeedback(ctx context.Context, e *email.Email, isFalse
 				return err
 			}
 			if !exists {
-				conf := 1.0
 				f := &database.LearnedFilter{
-					FilterType: database.FilterTypeDomainWhitelist,
-					Value:      domain,
-					Source:     database.FilterSourceUser,
-					Confidence: &conf,
+					FilterType:         database.FilterTypeDomainWhitelist,
+					Value:              domain,
+					Source:             database.FilterSourceUser,
+					FalsePositiveCount: 0,
 				}
 				if err := l.db.CreateLearnedFilter(ctx, f); err != nil {
 					return err

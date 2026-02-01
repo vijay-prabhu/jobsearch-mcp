@@ -20,6 +20,12 @@ func buildQuery(opts email.FetchOptions) string {
 		parts = append(parts, fmt.Sprintf("after:%s", opts.After.Format("2006/01/02")))
 	}
 
+	// Include both inbox and sent emails when IncludeSent is true
+	// This ensures we capture replies to recruiters
+	if opts.IncludeSent {
+		parts = append(parts, "(in:inbox OR in:sent)")
+	}
+
 	// Add custom query if provided
 	if opts.Query != "" {
 		parts = append(parts, opts.Query)

@@ -28,16 +28,18 @@ type Provider interface {
 
 // FetchOptions configures email fetching
 type FetchOptions struct {
-	MaxResults int        // Maximum number of emails to fetch
-	After      *time.Time // Fetch emails after this date
-	Query      string     // Provider-specific query string
+	MaxResults  int        // Maximum number of emails to fetch
+	After       *time.Time // Fetch emails after this date
+	Query       string     // Provider-specific query string
+	IncludeSent bool       // Include sent emails (for tracking replies)
 }
 
 // DefaultFetchOptions returns sensible defaults
 func DefaultFetchOptions() FetchOptions {
 	after := time.Now().AddDate(0, -1, 0) // Last 30 days
 	return FetchOptions{
-		MaxResults: 100,
-		After:      &after,
+		MaxResults:  100,
+		After:       &after,
+		IncludeSent: true, // Include sent emails to track replies
 	}
 }

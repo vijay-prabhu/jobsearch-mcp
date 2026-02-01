@@ -33,8 +33,9 @@ type FilteredEmail struct {
 
 // Filter applies multi-layer filtering to emails
 type Filter struct {
-	config config.FilterConfig
-	scorer *Scorer
+	config    config.FilterConfig
+	scorer    *Scorer
+	userEmail string // User's email for detecting outbound emails
 
 	// Learned filters (added at runtime)
 	learnedDomainWhitelist  []string
@@ -55,6 +56,11 @@ func New(cfg config.FilterConfig) *Filter {
 			UncertainMin:     0.02, // Uncertain if score >= 2% (let LLM decide)
 		}),
 	}
+}
+
+// SetUserEmail sets the user's email for detecting outbound emails
+func (f *Filter) SetUserEmail(email string) {
+	f.userEmail = email
 }
 
 // AddLearnedFilters adds learned filters to the filter configuration

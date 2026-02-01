@@ -20,6 +20,12 @@ var archivedMigration string
 //go:embed migrations/003_performance_indexes.sql
 var performanceIndexesMigration string
 
+//go:embed migrations/004_learned_filters.sql
+var learnedFiltersMigration string
+
+//go:embed migrations/005_review_suggested.sql
+var reviewSuggestedMigration string
+
 // DB wraps the SQL database connection
 type DB struct {
 	*sql.DB
@@ -115,6 +121,65 @@ func (db *DB) migrate() error {
 		// Run performance indexes migration
 		if _, err := db.Exec(performanceIndexesMigration); err != nil {
 			return fmt.Errorf("failed to run performance indexes migration: %w", err)
+		}
+	}
+
+	// Check if learned_filters table exists (migration 004)
+	var learnedFiltersExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name='learned_filters'
+	`).Scan(&learnedFiltersExists)
+	if err != nil {
+		return fmt.Errorf("failed to check learned_filters table: %w", err)
+	}
+
+	if learnedFiltersExists == 0 {
+		// Run learned filters migration
+		if _, err := db.Exec(learnedFiltersMigration); err != nil {
+			return fmt.Errorf("failed to run learned filters migration: %w", err)
+		}
+	} else {
+		// Check if we need to upgrade the learned_filters table schema
+		var fpCountExists int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM pragma_table_info('learned_filters')
+			WHERE name='false_positive_count'
+		`).Scan(&fpCountExists)
+		if err != nil {
+			return fmt.Errorf("failed to check false_positive_count column: %w", err)
+		}
+
+		if fpCountExists == 0 {
+			// Need to recreate table with new schema
+			// SQLite doesn't support adding columns with defaults easily, so recreate
+			_, err = db.Exec(`
+				DROP TABLE IF EXISTS learned_filters;
+				DROP TABLE IF EXISTS classification_metrics;
+			`)
+			if err != nil {
+				return fmt.Errorf("failed to drop old learned_filters table: %w", err)
+			}
+			if _, err := db.Exec(learnedFiltersMigration); err != nil {
+				return fmt.Errorf("failed to recreate learned filters table: %w", err)
+			}
+		}
+	}
+
+	// Check if review_suggested column exists (migration 005)
+	var reviewSuggestedExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('conversations')
+		WHERE name='review_suggested'
+	`).Scan(&reviewSuggestedExists)
+	if err != nil {
+		return fmt.Errorf("failed to check review_suggested column: %w", err)
+	}
+
+	if reviewSuggestedExists == 0 {
+		// Run review_suggested migration
+		if _, err := db.Exec(reviewSuggestedMigration); err != nil {
+			return fmt.Errorf("failed to run review_suggested migration: %w", err)
 		}
 	}
 

@@ -10,7 +10,9 @@ Track your job search conversations from email. Automatically syncs, classifies,
 ## Features
 
 - **Smart Email Classification** - AI-powered filtering distinguishes real recruiter conversations from job alerts and spam
+- **Self-Learning Filters** - Mark false positives with `mark-spam`, system learns and auto-blacklists repeat offenders
 - **Conversation Tracking** - Groups email threads by recruiter, tracks who's waiting on whom
+- **Sent Email Tracking** - Captures your replies to recruiters, correctly computes "waiting on them" status
 - **Smart Auto-Grouping** - Automatically groups emails from the same recruiter into conversations
 - **Stale Detection** - Highlights conversations that need follow-up
 - **Natural Language Queries** - Ask about your job search in plain English (works with any AI agent/CLI)
@@ -120,6 +122,10 @@ jobsearch merge abc123 def456          # By conversation ID
 jobsearch archive "Stripe"             # Hide from default list
 jobsearch unarchive "Stripe"           # Show in default list again
 jobsearch list --include-archived      # Show all including archived
+
+# Mark false positives (not job-related)
+jobsearch mark-spam "Walmart"          # Marks as spam, learns from feedback
+                                       # Auto-blacklists domain after 3 reports
 
 # Export data
 jobsearch export --format=csv > jobs.csv    # Export to CSV
@@ -333,11 +339,11 @@ transport = "stdio"
                      └─────────────┘
 ```
 
-1. **Sync** - Fetches new emails from your provider (10 concurrent connections)
-2. **Filter** - Multi-layer filtering (domains, keywords, patterns)
+1. **Sync** - Fetches new emails from inbox AND sent folder (10 concurrent connections)
+2. **Filter** - Multi-layer filtering (domains, keywords, patterns) for both inbound and outbound
 3. **Classify** - LLM determines if email is job-related (5 concurrent)
-4. **Group** - Smart auto-grouping by recruiter email address
-5. **Track** - Computes conversation status (waiting on me/them, stale)
+4. **Group** - Smart auto-grouping by recruiter email (your replies are grouped with recruiter threads)
+5. **Track** - Computes conversation status (waiting on me/them, stale) based on who sent last
 6. **Query** - CLI, MCP, or natural language access
 
 ## Development

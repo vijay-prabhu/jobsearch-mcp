@@ -89,6 +89,18 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 	}
 	t.userEmail = userEmail
 
+	// Set user email on filter so it can handle outbound emails correctly
+	t.filter.SetUserEmail(userEmail)
+
+	// Load learned blacklist from database and add to filter
+	learnedBlacklist, err := t.db.GetLearnedBlacklist(ctx)
+	if err != nil {
+		// Non-fatal: log and continue
+		result.Errors = append(result.Errors, fmt.Errorf("failed to load learned blacklist: %w", err))
+	} else if len(learnedBlacklist) > 0 {
+		t.filter.AddLearnedFilters("domain_blacklist", learnedBlacklist)
+	}
+
 	// Get sync state
 	syncState, err := t.db.GetSyncState(ctx)
 	if err != nil {
@@ -349,15 +361,23 @@ func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email, 
 
 	// Create new conversation
 	direction := database.DirectionInbound
-	if e.IsFromMe(t.userEmail) {
+	isOutbound := e.IsFromMe(t.userEmail)
+	if isOutbound {
 		direction = database.DirectionOutbound
 	}
 
 	// Determine company name
 	company := t.extractCompanyName(e, classification)
 
-	recruiterEmail := e.From.Email
-	recruiterName := e.From.Name
+	// For outbound emails, use the recipient as the recruiter
+	var recruiterEmail, recruiterName string
+	if isOutbound && len(e.To) > 0 {
+		recruiterEmail = e.To[0].Email
+		recruiterName = e.To[0].Name
+	} else {
+		recruiterEmail = e.From.Email
+		recruiterName = e.From.Name
+	}
 
 	// If LLM extracted a recruiter name, use it
 	if classification != nil && classification.RecruiterName != nil && *classification.RecruiterName != "" {
@@ -389,8 +409,20 @@ func (t *Tracker) findOrCreateConversation(ctx context.Context, e *email.Email, 
 
 // extractCompanyName determines the company name from email and classification
 func (t *Tracker) extractCompanyName(e *email.Email, classification *classifier.ClassifyResponse) string {
+	// Get the relevant address (for outbound emails, use To address)
+	var relevantEmail, relevantName, relevantDomain string
+	if e.IsFromMe(t.userEmail) && len(e.To) > 0 {
+		relevantEmail = e.To[0].Email
+		relevantName = e.To[0].Name
+		relevantDomain = e.To[0].Domain()
+	} else {
+		relevantEmail = e.From.Email
+		relevantName = e.From.Name
+		relevantDomain = e.Domain()
+	}
+
 	// Check if this is a LinkedIn InMail
-	isLinkedInInMail := strings.Contains(strings.ToLower(e.From.Email), "linkedin.com")
+	isLinkedInInMail := strings.Contains(strings.ToLower(relevantEmail), "linkedin.com")
 
 	// If LLM extracted a company name, prefer that
 	if classification != nil && classification.Company != nil && *classification.Company != "" {
@@ -399,16 +431,16 @@ func (t *Tracker) extractCompanyName(e *email.Email, classification *classifier.
 
 	// For LinkedIn InMails without LLM company, use recruiter name as identifier
 	if isLinkedInInMail {
-		if e.From.Name != "" {
-			return e.From.Name + " (via LinkedIn)"
+		if relevantName != "" {
+			return relevantName + " (via LinkedIn)"
 		}
 		return "LinkedIn InMail"
 	}
 
 	// Extract company from domain
-	company := filter.ExtractCompanyFromDomain(e.Domain())
+	company := filter.ExtractCompanyFromDomain(relevantDomain)
 	if company == "" {
-		company = e.Domain()
+		company = relevantDomain
 	}
 
 	return company

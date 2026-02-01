@@ -32,6 +32,7 @@ var (
 	listSince           string
 	listLimit           int
 	listIncludeArchived bool
+	listNeedsReview     bool
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	listCmd.Flags().StringVar(&listSince, "since", "", "Filter by time (e.g., 7d, 2w, 1m)")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Maximum number of results")
 	listCmd.Flags().BoolVar(&listIncludeArchived, "include-archived", false, "Include archived conversations")
+	listCmd.Flags().BoolVar(&listNeedsReview, "needs-review", false, "Only show conversations flagged for review")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -68,6 +70,11 @@ func runList(cmd *cobra.Command, args []string) error {
 	if listStatus != "" {
 		status := database.ConversationStatus(listStatus)
 		opts.Status = &status
+	}
+
+	if listNeedsReview {
+		needsReview := true
+		opts.NeedsReview = &needsReview
 	}
 
 	if listSince != "" {
