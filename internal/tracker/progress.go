@@ -10,6 +10,7 @@ const (
 	PhaseFetchingEmails ProgressPhase = "fetching"
 	PhaseFiltering      ProgressPhase = "filtering"
 	PhaseClassifying    ProgressPhase = "classifying"
+	PhaseValidating     ProgressPhase = "validating"
 	PhaseProcessing     ProgressPhase = "processing"
 	PhaseUpdatingStatus ProgressPhase = "updating_status"
 )

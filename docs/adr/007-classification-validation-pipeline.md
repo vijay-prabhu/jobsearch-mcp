@@ -96,21 +96,21 @@ Implement a **5-stage classification validation pipeline**:
 
 ## Implementation Plan
 
-### Phase 1: Foundation (Priority: High)
-1. Expand domain blacklist with known false positive domains
-2. Add `learned_filters` table for persistent learned blacklist
-3. Implement `mark-spam` CLI command
-4. Implement domain learning (auto-blacklist threshold)
+### Phase 1: Foundation (Priority: High) ✅
+1. ✅ Expand domain blacklist with known false positive domains
+2. ✅ Add `learned_filters` table for persistent learned blacklist
+3. ✅ Implement `mark-spam` CLI command
+4. ✅ Implement domain learning (auto-blacklist threshold)
 
-### Phase 2: Validation (Priority: High)
-5. Implement structured validation prompt
-6. Add conditional validation logic (based on confidence)
-7. Update classifier client to support validation pass
+### Phase 2: Validation (Priority: High) ✅
+5. ✅ Implement structured validation prompt
+6. ✅ Add conditional validation logic (based on confidence)
+7. ✅ Update classifier client to support validation pass
 
-### Phase 3: Tiering & Metrics (Priority: Medium)
-8. Add confidence tiering logic
-9. Add `review_suggested` flag to conversations
-10. Track classification metrics (precision, recall estimates)
+### Phase 3: Tiering & Metrics (Priority: Medium) ✅
+8. ✅ Add confidence tiering logic
+9. ✅ Add `review_suggested` flag to conversations
+10. ✅ Track classification metrics (precision, recall estimates)
 
 ### Phase 4: Advanced Learning (Priority: Low)
 11. Implement `mark-missed` for false negatives

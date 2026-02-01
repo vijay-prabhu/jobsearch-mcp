@@ -69,3 +69,43 @@ For each field, use null if the information is not clearly stated in the email.
 Be precise - only extract information that is explicitly mentioned.
 
 JSON response:"""
+
+VALIDATION_PROMPT = """You are validating whether an email is genuinely job-search related.
+
+Email Details:
+- Subject: {subject}
+- From: {from_address}
+- Body preview: {body}
+
+Answer these questions about the email. Respond with a JSON object:
+{{
+    "is_direct_opportunity": true/false,
+    "is_recruiter_outreach": true/false,
+    "is_interview_related": true/false,
+    "is_job_alert_newsletter": true/false,
+    "is_marketing_promo": true/false,
+    "is_application_response": true/false,
+    "final_verdict": true/false,
+    "confidence": 0.0-1.0,
+    "reasoning": "brief explanation"
+}}
+
+Definitions:
+- is_direct_opportunity: Email about a specific job opening at a specific company
+- is_recruiter_outreach: Personal message from a recruiter (not automated)
+- is_interview_related: Scheduling, confirming, or following up on an interview
+- is_job_alert_newsletter: Automated digest of job listings (e.g., "10 new jobs for you")
+- is_marketing_promo: Promotional content, newsletters, or marketing emails
+- is_application_response: Confirmation, rejection, or update about YOUR application
+
+Rules for final_verdict:
+- TRUE if: is_direct_opportunity OR is_recruiter_outreach OR is_interview_related OR is_application_response
+- FALSE if: is_job_alert_newsletter OR is_marketing_promo
+- When signals conflict, lean towards FALSE (conservative)
+
+IMPORTANT: Mass recruiter spam (generic "exciting opportunity" with no specific role) should be:
+- is_recruiter_outreach: false (not personal)
+- is_marketing_promo: true
+- final_verdict: false
+
+JSON response:"""

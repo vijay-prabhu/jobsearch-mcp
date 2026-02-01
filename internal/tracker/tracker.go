@@ -15,10 +15,17 @@ import (
 	"github.com/vijay-prabhu/jobsearch-mcp/internal/filter"
 )
 
+// Confidence thresholds for conditional validation
+const (
+	confidenceHighThreshold   = 0.7 // Above this: skip validation
+	confidenceMediumThreshold = 0.5 // Between medium and high: run validation
+)
+
 // processedEmail holds a filtered email with optional LLM classification
 type processedEmail struct {
 	filter.FilteredEmail
 	Classification *classifier.ClassifyResponse
+	Validated      bool // Whether validation was run
 }
 
 // Tracker orchestrates the email sync and tracking pipeline
@@ -186,7 +193,13 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 		}
 		batchResults := t.classifier.ClassifyBatchWithProgress(ctx, requests, t.config.LLM.Primary, t.config.LLM.Fallback, classifyProgress)
 
-		// Process results
+		// Process results - collect emails that need validation
+		var needsValidation []struct {
+			index          int
+			email          *filter.FilteredEmail
+			classification *classifier.ClassifyResponse
+		}
+
 		for i, br := range batchResults {
 			if br.Error != nil {
 				result.Errors = append(result.Errors, fmt.Errorf("classification failed: %w", br.Error))
@@ -198,6 +211,19 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 
 			if classification.IsJobRelated {
 				e := &uncertain[i]
+
+				// Check if validation is needed (medium confidence)
+				if classification.Confidence < confidenceHighThreshold &&
+					classification.Confidence >= confidenceMediumThreshold {
+					needsValidation = append(needsValidation, struct {
+						index          int
+						email          *filter.FilteredEmail
+						classification *classifier.ClassifyResponse
+					}{i, e, classification})
+					continue
+				}
+
+				// High confidence - include without validation
 				e.Result.Include = true
 				e.Result.Layer = filter.LayerLLM
 				e.Result.Confidence = classification.Confidence
@@ -209,6 +235,63 @@ func (t *Tracker) SyncWithOptions(ctx context.Context, syncOpts SyncOptions) (*S
 				// Learn from this classification
 				if t.learner != nil {
 					_ = t.learner.LearnFromEmail(ctx, &e.Email, classification.Confidence)
+				}
+			}
+		}
+
+		// Run validation for medium-confidence emails
+		if len(needsValidation) > 0 {
+			report(PhaseValidating, 0, len(needsValidation), "Validating uncertain emails")
+
+			for j, nv := range needsValidation {
+				report(PhaseValidating, j+1, len(needsValidation), "Validating uncertain emails")
+
+				valReq := classifier.ValidateRequest{
+					EmailSubject: nv.email.Email.Subject,
+					EmailBody:    nv.email.Email.Body,
+					EmailFrom:    nv.email.Email.From.Email,
+				}
+
+				valResp, err := t.classifier.ValidateWithFallback(ctx, valReq, t.config.LLM.Primary, t.config.LLM.Fallback)
+				if err != nil {
+					// Validation failed - use original classification conservatively
+					result.Errors = append(result.Errors, fmt.Errorf("validation failed for email: %w", err))
+					// Include with original classification but flag for review
+					nv.email.Result.Include = true
+					nv.email.Result.Layer = filter.LayerLLM
+					nv.email.Result.Confidence = nv.classification.Confidence
+					toProcess = append(toProcess, processedEmail{
+						FilteredEmail:  *nv.email,
+						Classification: nv.classification,
+						Validated:      false,
+					})
+					continue
+				}
+
+				// Use validation result
+				if valResp.FinalVerdict {
+					// Validation confirms - include
+					nv.email.Result.Include = true
+					nv.email.Result.Layer = filter.LayerLLM
+					nv.email.Result.Confidence = valResp.Confidence
+					toProcess = append(toProcess, processedEmail{
+						FilteredEmail:  *nv.email,
+						Classification: nv.classification,
+						Validated:      true,
+					})
+
+					// Learn from validated classification
+					if t.learner != nil {
+						_ = t.learner.LearnFromEmail(ctx, &nv.email.Email, valResp.Confidence)
+					}
+				} else {
+					// Validation rejects - this is a false positive caught by validation
+					// Log for metrics tracking but don't include
+					if valResp.Reasoning != nil {
+						result.Errors = append(result.Errors,
+							fmt.Errorf("validation rejected: %s (reason: %s)",
+								nv.email.Email.From.Email, *valResp.Reasoning))
+					}
 				}
 			}
 		}

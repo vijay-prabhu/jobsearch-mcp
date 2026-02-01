@@ -59,6 +59,28 @@ type ClassifyResponse struct {
 	Reasoning      *string `json:"reasoning,omitempty"`
 }
 
+// ValidateRequest is the request body for validation
+type ValidateRequest struct {
+	EmailSubject string  `json:"email_subject"`
+	EmailBody    string  `json:"email_body"`
+	EmailFrom    string  `json:"email_from"`
+	Provider     string  `json:"provider,omitempty"`
+	Model        *string `json:"model,omitempty"`
+}
+
+// ValidateResponse is the response from validation
+type ValidateResponse struct {
+	IsDirectOpportunity   bool    `json:"is_direct_opportunity"`
+	IsRecruiterOutreach   bool    `json:"is_recruiter_outreach"`
+	IsInterviewRelated    bool    `json:"is_interview_related"`
+	IsJobAlertNewsletter  bool    `json:"is_job_alert_newsletter"`
+	IsMarketingPromo      bool    `json:"is_marketing_promo"`
+	IsApplicationResponse bool    `json:"is_application_response"`
+	FinalVerdict          bool    `json:"final_verdict"`
+	Confidence            float64 `json:"confidence"`
+	Reasoning             *string `json:"reasoning,omitempty"`
+}
+
 // HealthResponse is the response from health check
 type HealthResponse struct {
 	Status          string `json:"status"`
@@ -274,6 +296,60 @@ func (c *Client) ClassifyWithFallback(ctx context.Context, req ClassifyRequest, 
 	if fallback != "" {
 		req.Provider = fallback
 		return c.Classify(ctx, req)
+	}
+
+	return nil, err
+}
+
+// Validate sends an email for structured validation
+func (c *Client) Validate(ctx context.Context, req ValidateRequest) (*ValidateResponse, error) {
+	// Default to ollama
+	if req.Provider == "" {
+		req.Provider = "ollama"
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/validate", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("validation request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("validation failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result ValidateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ValidateWithFallback tries the primary provider, falling back to secondary on failure
+func (c *Client) ValidateWithFallback(ctx context.Context, req ValidateRequest, primary, fallback string) (*ValidateResponse, error) {
+	req.Provider = primary
+	result, err := c.Validate(ctx, req)
+	if err == nil {
+		return result, nil
+	}
+
+	// Try fallback
+	if fallback != "" {
+		req.Provider = fallback
+		return c.Validate(ctx, req)
 	}
 
 	return nil, err

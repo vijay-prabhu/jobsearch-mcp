@@ -7,8 +7,8 @@ from typing import Optional
 
 from openai import AsyncOpenAI
 
-from ..prompts import CLASSIFICATION_PROMPT
-from .base import ClassificationResult, LLMProvider
+from ..prompts import CLASSIFICATION_PROMPT, VALIDATION_PROMPT
+from .base import ClassificationResult, LLMProvider, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,69 @@ class OpenAIProvider(LLMProvider):
             is_job_related=False,
             confidence=0.0,
             reasoning=f"Classification failed: {reason}",
+        )
+
+    async def validate(
+        self,
+        subject: str,
+        body: str,
+        from_address: str,
+    ) -> ValidationResult:
+        """Validate an email classification using structured multi-signal questions."""
+        if not self._client:
+            return self._fallback_validation_result("OpenAI API key not configured")
+
+        max_body_length = 3000
+        if len(body) > max_body_length:
+            body = body[:max_body_length] + "..."
+
+        prompt = VALIDATION_PROMPT.format(
+            subject=subject,
+            body=body,
+            from_address=from_address,
+        )
+
+        try:
+            response = await self._client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.1,
+            )
+
+            content = response.choices[0].message.content
+            return self._parse_validation_response(content)
+
+        except Exception as e:
+            logger.error(f"OpenAI validation failed: {e}")
+            return self._fallback_validation_result(str(e))
+
+    def _parse_validation_response(self, content: str) -> ValidationResult:
+        """Parse the LLM response into a ValidationResult."""
+        try:
+            data = json.loads(content)
+
+            return ValidationResult(
+                is_direct_opportunity=data.get("is_direct_opportunity", False),
+                is_recruiter_outreach=data.get("is_recruiter_outreach", False),
+                is_interview_related=data.get("is_interview_related", False),
+                is_job_alert_newsletter=data.get("is_job_alert_newsletter", False),
+                is_marketing_promo=data.get("is_marketing_promo", False),
+                is_application_response=data.get("is_application_response", False),
+                final_verdict=data.get("final_verdict", False),
+                confidence=float(data.get("confidence", 0.0)),
+                reasoning=data.get("reasoning"),
+            )
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to parse validation response: {e}")
+            return self._fallback_validation_result(f"Parse error: {e}")
+
+    def _fallback_validation_result(self, reason: str) -> ValidationResult:
+        """Return a conservative fallback validation result."""
+        return ValidationResult(
+            final_verdict=False,
+            confidence=0.0,
+            reasoning=f"Validation failed: {reason}",
         )
 
     async def close(self):

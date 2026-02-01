@@ -18,6 +18,20 @@ class ClassificationResult(BaseModel):
     reasoning: Optional[str] = None
 
 
+class ValidationResult(BaseModel):
+    """Result of structured validation for an email."""
+
+    is_direct_opportunity: bool = False
+    is_recruiter_outreach: bool = False
+    is_interview_related: bool = False
+    is_job_alert_newsletter: bool = False
+    is_marketing_promo: bool = False
+    is_application_response: bool = False
+    final_verdict: bool = False
+    confidence: float = 0.0
+    reasoning: Optional[str] = None
+
+
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
@@ -29,6 +43,16 @@ class LLMProvider(ABC):
         from_address: str,
     ) -> ClassificationResult:
         """Classify an email and extract relevant information."""
+        pass
+
+    @abstractmethod
+    async def validate(
+        self,
+        subject: str,
+        body: str,
+        from_address: str,
+    ) -> ValidationResult:
+        """Validate classification with structured multi-signal questions."""
         pass
 
     @abstractmethod

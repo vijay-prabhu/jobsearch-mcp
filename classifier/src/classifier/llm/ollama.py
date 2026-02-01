@@ -5,8 +5,8 @@ import logging
 
 import httpx
 
-from ..prompts import CLASSIFICATION_PROMPT
-from .base import ClassificationResult, LLMProvider
+from ..prompts import CLASSIFICATION_PROMPT, VALIDATION_PROMPT
+from .base import ClassificationResult, LLMProvider, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,91 @@ class OllamaProvider(LLMProvider):
             is_job_related=False,
             confidence=0.0,
             reasoning=f"Classification failed: {reason}",
+        )
+
+    async def validate(
+        self,
+        subject: str,
+        body: str,
+        from_address: str,
+    ) -> ValidationResult:
+        """Validate an email classification using structured multi-signal questions."""
+        # Truncate body if too long
+        max_body_length = 1500
+        if len(body) > max_body_length:
+            body = body[:max_body_length] + "..."
+
+        prompt = VALIDATION_PROMPT.format(
+            subject=subject,
+            body=body,
+            from_address=from_address,
+        )
+
+        try:
+            response = await self._client.post(
+                f"{self.host}/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "format": "json",
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                    },
+                },
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            content = data.get("message", {}).get("content", "")
+
+            return self._parse_validation_response(content)
+
+        except httpx.TimeoutException:
+            logger.error("Ollama validation request timed out")
+            return self._fallback_validation_result("Request timed out")
+        except Exception as e:
+            logger.error(f"Ollama validation failed: {e}")
+            return self._fallback_validation_result(str(e))
+
+    def _parse_validation_response(self, content: str) -> ValidationResult:
+        """Parse the LLM response into a ValidationResult."""
+        try:
+            content = content.strip()
+
+            if not content.startswith("{"):
+                start = content.find("{")
+                if start != -1:
+                    content = content[start:]
+
+            if not content.endswith("}"):
+                end = content.rfind("}")
+                if end != -1:
+                    content = content[: end + 1]
+
+            data = json.loads(content)
+
+            return ValidationResult(
+                is_direct_opportunity=data.get("is_direct_opportunity", False),
+                is_recruiter_outreach=data.get("is_recruiter_outreach", False),
+                is_interview_related=data.get("is_interview_related", False),
+                is_job_alert_newsletter=data.get("is_job_alert_newsletter", False),
+                is_marketing_promo=data.get("is_marketing_promo", False),
+                is_application_response=data.get("is_application_response", False),
+                final_verdict=data.get("final_verdict", False),
+                confidence=float(data.get("confidence", 0.0)),
+                reasoning=data.get("reasoning"),
+            )
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to parse validation response: {e}")
+            return self._fallback_validation_result(f"Parse error: {e}")
+
+    def _fallback_validation_result(self, reason: str) -> ValidationResult:
+        """Return a conservative fallback validation result."""
+        return ValidationResult(
+            final_verdict=False,
+            confidence=0.0,
+            reasoning=f"Validation failed: {reason}",
         )
 
     async def close(self):

@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .llm import ClassificationResult, get_provider
+from .llm import ClassificationResult, ValidationResult, get_provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +18,17 @@ _providers = {}
 
 class ClassifyRequest(BaseModel):
     """Request model for classification endpoint."""
+
+    email_subject: str
+    email_body: str
+    email_from: str
+    provider: str = "ollama"
+    model: Optional[str] = None
+    host: Optional[str] = None
+
+
+class ValidateRequest(BaseModel):
+    """Request model for validation endpoint."""
 
     email_subject: str
     email_body: str
@@ -145,14 +156,64 @@ async def classify(request: ClassifyRequest):
         )
 
 
+@app.post("/validate", response_model=ValidationResult)
+async def validate(request: ValidateRequest):
+    """Validate an email classification with structured multi-signal questions."""
+    provider_name = request.provider
+
+    # Get or create provider
+    if provider_name in _providers:
+        provider = _providers[provider_name]
+    else:
+        try:
+            kwargs = {}
+            if request.model:
+                kwargs["model"] = request.model
+            if request.host:
+                kwargs["host"] = request.host
+            provider = get_provider(provider_name, **kwargs)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Check provider health
+    try:
+        is_healthy = await provider.health_check()
+        if not is_healthy:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Provider '{provider_name}' is not available",
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Provider health check failed: {e}",
+        )
+
+    # Validate the email
+    try:
+        result = await provider.validate(
+            subject=request.email_subject,
+            body=request.email_body,
+            from_address=request.email_from,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Validation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Validation failed: {e}",
+        )
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
     return {
         "name": "JobSearch Classifier",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "endpoints": {
             "/health": "Health check",
             "/classify": "Email classification (POST)",
+            "/validate": "Email validation with multi-signal analysis (POST)",
         },
     }
